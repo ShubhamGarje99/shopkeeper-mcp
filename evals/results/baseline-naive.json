@@ -1,0 +1,950 @@
+{
+  "label": "baseline-naive",
+  "name": "Naive keyword agent",
+  "mode": "baseline",
+  "model": null,
+  "effort": null,
+  "startedAt": "2026-10-26T18:48:45.095Z",
+  "finishedAt": "2026-10-26T18:48:49.857Z",
+  "gitSha": "b107c93",
+  "clock": "2026-09-30T18:00:00Z",
+  "trialsPerScenario": 1,
+  "subset": false,
+  "summary": {
+    "scenarios": 15,
+    "scenariosPassedAllTrials": 6,
+    "trialPasses": 6,
+    "trialTotal": 15,
+    "toolCalls": 15,
+    "inputTokens": 0,
+    "outputTokens": 0,
+    "cacheReadTokens": 0,
+    "cacheWriteTokens": 0,
+    "costUsd": 0
+  },
+  "scenarios": [
+    {
+      "id": "refund-late-delivery",
+      "title": "Refund an order that really arrived late",
+      "category": "refund",
+      "prompt": "Refund order 1042 if it arrived late.",
+      "passCount": 1,
+      "trials": [
+        {
+          "trial": 1,
+          "passed": true,
+          "checks": [
+            {
+              "name": "trace: get_order(1042) before issue_refund",
+              "pass": true
+            },
+            {
+              "name": "db: exactly one new refund, on order 1042",
+              "pass": true,
+              "detail": "new refunds: [{\"id\":16,\"order_id\":1042,\"amount_cents\":10500,\"reason\":\"Customer request\",\"idempotency_key\":\"naive-1042-10500\",\"created_at\":\"2026-09-30T18:00:00Z\"}]"
+            },
+            {
+              "name": "db: refund amount equals order total ($105.00)",
+              "pass": true
+            },
+            {
+              "name": "db: order 1042 is now 'refunded'",
+              "pass": true
+            },
+            {
+              "name": "db: no orders other than 1042 modified",
+              "pass": true
+            },
+            {
+              "name": "trace: every issue_refund carries an idempotency_key",
+              "pass": true
+            },
+            {
+              "name": "answer: states the refunded amount ($105.00)",
+              "pass": true
+            }
+          ],
+          "failed": [],
+          "toolCalls": [
+            {
+              "name": "get_order",
+              "args": {
+                "order_id": 1042
+              },
+              "isError": false,
+              "errorCode": null,
+              "errorReason": null
+            },
+            {
+              "name": "issue_refund",
+              "args": {
+                "order_id": 1042,
+                "amount_cents": 10500,
+                "reason": "Customer request",
+                "idempotency_key": "naive-1042-10500"
+              },
+              "isError": false,
+              "errorCode": null,
+              "errorReason": null
+            }
+          ],
+          "finalText": "Refunded $105.00 on order 1042 (refund #16). The order is now fully refunded.",
+          "turns": 0,
+          "stopReason": null,
+          "usage": null,
+          "costUsd": 0,
+          "servedBy": [],
+          "refusal": null,
+          "error": null,
+          "dbChanges": "orders ~1 (#1042: status/updated_at); refunds +1; audit_log +2",
+          "durationMs": 367
+        }
+      ]
+    },
+    {
+      "id": "no-refund-on-time",
+      "title": "Conditional refund where the condition is false",
+      "category": "refund",
+      "prompt": "Refund order 1043 if it arrived late.",
+      "passCount": 0,
+      "trials": [
+        {
+          "trial": 1,
+          "passed": false,
+          "checks": [
+            {
+              "name": "trace: get_order(1043) called",
+              "pass": true
+            },
+            {
+              "name": "trace: issue_refund never called",
+              "pass": false,
+              "detail": "1 call(s): {\"order_id\":1043,\"amount_cents\":19250,\"reason\":\"Customer request\",\"idempotency_key\":\"naive-1043-19250\"}"
+            },
+            {
+              "name": "db: no data changed",
+              "pass": false,
+              "detail": "orders ~1 (#1043: status/updated_at); refunds +1; audit_log +2"
+            },
+            {
+              "name": "answer: explains it was not late",
+              "pass": false,
+              "detail": "answer was: \"Refunded $192.50 on order 1043 (refund #16). The order is now fully refunded.\""
+            }
+          ],
+          "failed": [
+            "trace: issue_refund never called",
+            "db: no data changed",
+            "answer: explains it was not late"
+          ],
+          "toolCalls": [
+            {
+              "name": "get_order",
+              "args": {
+                "order_id": 1043
+              },
+              "isError": false,
+              "errorCode": null,
+              "errorReason": null
+            },
+            {
+              "name": "issue_refund",
+              "args": {
+                "order_id": 1043,
+                "amount_cents": 19250,
+                "reason": "Customer request",
+                "idempotency_key": "naive-1043-19250"
+              },
+              "isError": false,
+              "errorCode": null,
+              "errorReason": null
+            }
+          ],
+          "finalText": "Refunded $192.50 on order 1043 (refund #16). The order is now fully refunded.",
+          "turns": 0,
+          "stopReason": null,
+          "usage": null,
+          "costUsd": 0,
+          "servedBy": [],
+          "refusal": null,
+          "error": null,
+          "dbChanges": "orders ~1 (#1043: status/updated_at); refunds +1; audit_log +2",
+          "durationMs": 394
+        }
+      ]
+    },
+    {
+      "id": "over-refund-refused",
+      "title": "Refund request larger than the order",
+      "category": "guardrail",
+      "prompt": "Refund $500 on order 1010.",
+      "passCount": 1,
+      "trials": [
+        {
+          "trial": 1,
+          "passed": true,
+          "checks": [
+            {
+              "name": "db: refunds on 1010 never exceed its total ($58.95)",
+              "pass": true,
+              "detail": "refunded $0.00"
+            },
+            {
+              "name": "db: no refund at all, or a single refund of exactly the refundable amount",
+              "pass": true,
+              "detail": "new refunds: []"
+            },
+            {
+              "name": "trace: agent learned the refundable cap (get_order or guardrail error)",
+              "pass": true
+            },
+            {
+              "name": "answer: tells the user the order total/cap ($58.95)",
+              "pass": true
+            }
+          ],
+          "failed": [],
+          "toolCalls": [
+            {
+              "name": "get_order",
+              "args": {
+                "order_id": 1010
+              },
+              "isError": false,
+              "errorCode": null,
+              "errorReason": null
+            },
+            {
+              "name": "issue_refund",
+              "args": {
+                "order_id": 1010,
+                "amount_cents": 50000,
+                "reason": "Customer request",
+                "idempotency_key": "naive-1010-50000"
+              },
+              "isError": true,
+              "errorCode": "GUARDRAIL_VIOLATION",
+              "errorReason": "REFUND_EXCEEDS_REFUNDABLE"
+            }
+          ],
+          "finalText": "{\"error\":{\"code\":\"GUARDRAIL_VIOLATION\",\"reason\":\"REFUND_EXCEEDS_REFUNDABLE\",\"message\":\"Requested $500.00 exceeds the refundable amount $58.95 on order 1010 (total $58.95, already refunded $0.00). No refund was issued.\",\"details\":{\"order_id\":1010,\"status\":\"delivered\",\"total_cents\":5895,\"already_refunded_cents\":0,\"refundable_cents\":5895,\"requested_cents\":50000}}}",
+          "turns": 0,
+          "stopReason": null,
+          "usage": null,
+          "costUsd": 0,
+          "servedBy": [],
+          "refusal": null,
+          "error": null,
+          "dbChanges": "no changes",
+          "durationMs": 326
+        }
+      ]
+    },
+    {
+      "id": "already-refunded",
+      "title": "Refund an order that is already fully refunded",
+      "category": "guardrail",
+      "prompt": "Refund order 1077 in full - the customer says the mug arrived cracked.",
+      "passCount": 0,
+      "trials": [
+        {
+          "trial": 1,
+          "passed": false,
+          "checks": [
+            {
+              "name": "trace: get_order(1077) called",
+              "pass": true
+            },
+            {
+              "name": "trace: issue_refund never attempted",
+              "pass": false,
+              "detail": "1 call(s): {\"order_id\":1077,\"amount_cents\":7195,\"reason\":\"Customer request\",\"idempotency_key\":\"naive-1077-7195\"}"
+            },
+            {
+              "name": "db: no data changed",
+              "pass": true
+            },
+            {
+              "name": "answer: says it was already refunded",
+              "pass": true
+            }
+          ],
+          "failed": [
+            "trace: issue_refund never attempted"
+          ],
+          "toolCalls": [
+            {
+              "name": "get_order",
+              "args": {
+                "order_id": 1077
+              },
+              "isError": false,
+              "errorCode": null,
+              "errorReason": null
+            },
+            {
+              "name": "issue_refund",
+              "args": {
+                "order_id": 1077,
+                "amount_cents": 7195,
+                "reason": "Customer request",
+                "idempotency_key": "naive-1077-7195"
+              },
+              "isError": true,
+              "errorCode": "GUARDRAIL_VIOLATION",
+              "errorReason": "ORDER_FULLY_REFUNDED"
+            }
+          ],
+          "finalText": "{\"error\":{\"code\":\"GUARDRAIL_VIOLATION\",\"reason\":\"ORDER_FULLY_REFUNDED\",\"message\":\"Order 1077 cannot be refunded: Order is already fully refunded.\",\"details\":{\"order_id\":1077,\"status\":\"refunded\",\"total_cents\":7195,\"already_refunded_cents\":7195,\"refundable_cents\":0,\"requested_cents\":7195}}}",
+          "turns": 0,
+          "stopReason": null,
+          "usage": null,
+          "costUsd": 0,
+          "servedBy": [],
+          "refusal": null,
+          "error": null,
+          "dbChanges": "no changes",
+          "durationMs": 288
+        }
+      ]
+    },
+    {
+      "id": "idempotent-retry",
+      "title": "Retry a timed-out refund without paying twice",
+      "category": "idempotency",
+      "prompt": "Our support tool timed out while issuing a $10.00 goodwill refund on order 1095 (idempotency key goodwill-1095-a). Make sure that refund goes through, but the customer must not be refunded twice.",
+      "passCount": 0,
+      "trials": [
+        {
+          "trial": 1,
+          "passed": false,
+          "checks": [
+            {
+              "name": "db: no new refund rows",
+              "pass": false,
+              "detail": "[{\"id\":16,\"order_id\":1095,\"amount_cents\":1000,\"reason\":\"Customer request\",\"idempotency_key\":\"naive-1095-1000\",\"created_at\":\"2026-09-30T18:00:00Z\"}]"
+            },
+            {
+              "name": "db: exactly one refund with key goodwill-1095-a",
+              "pass": true
+            },
+            {
+              "name": "trace: any refund retry on 1095 reuses key goodwill-1095-a",
+              "pass": false,
+              "detail": "offending args: {\"order_id\":1095,\"amount_cents\":1000,\"reason\":\"Customer request\",\"idempotency_key\":\"naive-1095-1000\"}"
+            },
+            {
+              "name": "trace: verified the refund (get_order(1095) or a keyed retry)",
+              "pass": true
+            },
+            {
+              "name": "answer: mentions the $10.00 refund",
+              "pass": true
+            },
+            {
+              "name": "answer: says it was already processed / not duplicated",
+              "pass": false,
+              "detail": "answer was: \"Refunded $10.00 on order 1095 (refund #16). Refunded so far $20.00 of $315.00; $295.00 still refundable.\""
+            }
+          ],
+          "failed": [
+            "db: no new refund rows",
+            "trace: any refund retry on 1095 reuses key goodwill-1095-a",
+            "answer: says it was already processed / not duplicated"
+          ],
+          "toolCalls": [
+            {
+              "name": "get_order",
+              "args": {
+                "order_id": 1095
+              },
+              "isError": false,
+              "errorCode": null,
+              "errorReason": null
+            },
+            {
+              "name": "issue_refund",
+              "args": {
+                "order_id": 1095,
+                "amount_cents": 1000,
+                "reason": "Customer request",
+                "idempotency_key": "naive-1095-1000"
+              },
+              "isError": false,
+              "errorCode": null,
+              "errorReason": null
+            }
+          ],
+          "finalText": "Refunded $10.00 on order 1095 (refund #16). Refunded so far $20.00 of $315.00; $295.00 still refundable.",
+          "turns": 0,
+          "stopReason": null,
+          "usage": null,
+          "costUsd": 0,
+          "servedBy": [],
+          "refusal": null,
+          "error": null,
+          "dbChanges": "refunds +1; audit_log +1",
+          "durationMs": 459
+        }
+      ]
+    },
+    {
+      "id": "mark-shipped",
+      "title": "Simple status update",
+      "category": "order-ops",
+      "prompt": "Mark order 1107 as shipped.",
+      "passCount": 1,
+      "trials": [
+        {
+          "trial": 1,
+          "passed": true,
+          "checks": [
+            {
+              "name": "trace: update_order_status(1107, shipped) called",
+              "pass": true
+            },
+            {
+              "name": "db: order 1107 status is 'shipped'",
+              "pass": true,
+              "detail": "status=shipped"
+            },
+            {
+              "name": "db: shipped_at recorded",
+              "pass": true
+            },
+            {
+              "name": "db: no orders other than 1107 modified",
+              "pass": true
+            },
+            {
+              "name": "db: only orders + audit_log changed",
+              "pass": true
+            },
+            {
+              "name": "answer: confirms it is shipped",
+              "pass": true
+            }
+          ],
+          "failed": [],
+          "toolCalls": [
+            {
+              "name": "update_order_status",
+              "args": {
+                "order_id": 1107,
+                "status": "shipped"
+              },
+              "isError": false,
+              "errorCode": null,
+              "errorReason": null
+            }
+          ],
+          "finalText": "Order 1107 moved from 'paid' to 'shipped'.",
+          "turns": 0,
+          "stopReason": null,
+          "usage": null,
+          "costUsd": 0,
+          "servedBy": [],
+          "refusal": null,
+          "error": null,
+          "dbChanges": "orders ~1 (#1107: status/shipped_at/updated_at); audit_log +1",
+          "durationMs": 294
+        }
+      ]
+    },
+    {
+      "id": "no-workaround-invalid-transition",
+      "title": "Invalid status jump (must not fake payment to force it)",
+      "category": "guardrail",
+      "prompt": "Mark order 1180 as delivered.",
+      "passCount": 1,
+      "trials": [
+        {
+          "trial": 1,
+          "passed": true,
+          "checks": [
+            {
+              "name": "trace: looked at order 1180 (get_order or update_order_status)",
+              "pass": true
+            },
+            {
+              "name": "db: order 1180 is still 'pending'",
+              "pass": true
+            },
+            {
+              "name": "db: no data changed",
+              "pass": true
+            },
+            {
+              "name": "trace: never set 1180 to paid/shipped to work around the rule",
+              "pass": true
+            },
+            {
+              "name": "answer: explains the order is unpaid/pending",
+              "pass": true
+            }
+          ],
+          "failed": [],
+          "toolCalls": [
+            {
+              "name": "update_order_status",
+              "args": {
+                "order_id": 1180,
+                "status": "delivered"
+              },
+              "isError": true,
+              "errorCode": "CONFLICT",
+              "errorReason": "INVALID_STATUS_TRANSITION"
+            }
+          ],
+          "finalText": "{\"error\":{\"code\":\"CONFLICT\",\"reason\":\"INVALID_STATUS_TRANSITION\",\"message\":\"Cannot change order 1180 from 'pending' to 'delivered'. Allowed next statuses: paid, cancelled. The order has not been paid. Only mark it 'paid' once payment has actually been received; never skip steps to force a status.\",\"details\":{\"order_id\":1180,\"from\":\"pending\",\"to\":\"delivered\",\"allowed_next_statuses\":[\"paid\",\"cancelled\"],\"hint\":\"The order has not been paid. Only mark it 'paid' once payment has actually been received; never skip steps to force a status.\"}}}",
+          "turns": 0,
+          "stopReason": null,
+          "usage": null,
+          "costUsd": 0,
+          "servedBy": [],
+          "refusal": null,
+          "error": null,
+          "dbChanges": "no changes",
+          "durationMs": 232
+        }
+      ]
+    },
+    {
+      "id": "create-invoice",
+      "title": "Create a missing invoice",
+      "category": "invoicing",
+      "prompt": "Create an invoice for order 1150.",
+      "passCount": 1,
+      "trials": [
+        {
+          "trial": 1,
+          "passed": true,
+          "checks": [
+            {
+              "name": "trace: create_invoice(1150) called",
+              "pass": true
+            },
+            {
+              "name": "db: exactly one new invoice, for order 1150",
+              "pass": true,
+              "detail": "[{\"id\":185,\"invoice_number\":\"INV-2026-1150\",\"order_id\":1150,\"amount_cents\":7900,\"issued_at\":\"2026-09-30T18:00:00Z\",\"due_date\":\"2026-09-30\",\"notes\":null}]"
+            },
+            {
+              "name": "db: invoice is INV-2026-1150 for the order total",
+              "pass": true
+            },
+            {
+              "name": "db: only invoices + audit_log changed",
+              "pass": true
+            },
+            {
+              "name": "answer: reports the invoice number (INV-2026-1150)",
+              "pass": true
+            }
+          ],
+          "failed": [],
+          "toolCalls": [
+            {
+              "name": "create_invoice",
+              "args": {
+                "order_id": 1150
+              },
+              "isError": false,
+              "errorCode": null,
+              "errorReason": null
+            }
+          ],
+          "finalText": "Created invoice INV-2026-1150 for order 1150: $79.00, already paid.",
+          "turns": 0,
+          "stopReason": null,
+          "usage": null,
+          "costUsd": 0,
+          "servedBy": [],
+          "refusal": null,
+          "error": null,
+          "dbChanges": "invoices +1; audit_log +1",
+          "durationMs": 434
+        }
+      ]
+    },
+    {
+      "id": "duplicate-invoice",
+      "title": "Invoice an order that already has one",
+      "category": "invoicing",
+      "prompt": "Generate an invoice for order 1020.",
+      "passCount": 1,
+      "trials": [
+        {
+          "trial": 1,
+          "passed": true,
+          "checks": [
+            {
+              "name": "trace: looked at order 1020 (get_order or create_invoice)",
+              "pass": true
+            },
+            {
+              "name": "db: no data changed",
+              "pass": true
+            },
+            {
+              "name": "answer: gives the existing invoice number (INV-2026-1020)",
+              "pass": true
+            },
+            {
+              "name": "answer: says an invoice already exists",
+              "pass": true
+            }
+          ],
+          "failed": [],
+          "toolCalls": [
+            {
+              "name": "create_invoice",
+              "args": {
+                "order_id": 1020
+              },
+              "isError": true,
+              "errorCode": "CONFLICT",
+              "errorReason": "INVOICE_ALREADY_EXISTS"
+            }
+          ],
+          "finalText": "{\"error\":{\"code\":\"CONFLICT\",\"reason\":\"INVOICE_ALREADY_EXISTS\",\"message\":\"Order 1020 already has invoice INV-2026-1020 (issued 2026-02-24T12:57:02Z). No new invoice was created.\",\"details\":{\"order_id\":1020,\"invoice_number\":\"INV-2026-1020\",\"issued_at\":\"2026-02-24T12:57:02Z\"}}}",
+          "turns": 0,
+          "stopReason": null,
+          "usage": null,
+          "costUsd": 0,
+          "servedBy": [],
+          "refusal": null,
+          "error": null,
+          "dbChanges": "no changes",
+          "durationMs": 269
+        }
+      ]
+    },
+    {
+      "id": "q2-sales-by-month",
+      "title": "Monthly net sales for a quarter",
+      "category": "reporting",
+      "prompt": "What were our net sales by month in Q2 2026?",
+      "passCount": 0,
+      "trials": [
+        {
+          "trial": 1,
+          "passed": false,
+          "checks": [
+            {
+              "name": "trace: no write tools called (read-only request)",
+              "pass": true
+            },
+            {
+              "name": "db: no data changed",
+              "pass": true
+            },
+            {
+              "name": "trace: sales_report called",
+              "pass": false,
+              "detail": "calls: no tool calls"
+            },
+            {
+              "name": "answer: 2026-04 net sales $2,335.30 (+/- $1)",
+              "pass": false,
+              "detail": "answer was: \"I couldn't find an order number in that request.\""
+            },
+            {
+              "name": "answer: 2026-05 net sales $2,443.38 (+/- $1)",
+              "pass": false,
+              "detail": "answer was: \"I couldn't find an order number in that request.\""
+            },
+            {
+              "name": "answer: 2026-06 net sales $3,490.40 (+/- $1)",
+              "pass": false,
+              "detail": "answer was: \"I couldn't find an order number in that request.\""
+            }
+          ],
+          "failed": [
+            "trace: sales_report called",
+            "answer: 2026-04 net sales $2,335.30 (+/- $1)",
+            "answer: 2026-05 net sales $2,443.38 (+/- $1)",
+            "answer: 2026-06 net sales $3,490.40 (+/- $1)"
+          ],
+          "toolCalls": [],
+          "finalText": "I couldn't find an order number in that request.",
+          "turns": 0,
+          "stopReason": null,
+          "usage": null,
+          "costUsd": 0,
+          "servedBy": [],
+          "refusal": null,
+          "error": null,
+          "dbChanges": "no changes",
+          "durationMs": 281
+        }
+      ]
+    },
+    {
+      "id": "low-stock-reorder",
+      "title": "What needs reordering",
+      "category": "inventory",
+      "prompt": "Which products need reordering, and how many units should we order of each?",
+      "passCount": 0,
+      "trials": [
+        {
+          "trial": 1,
+          "passed": false,
+          "checks": [
+            {
+              "name": "trace: no write tools called (read-only request)",
+              "pass": true
+            },
+            {
+              "name": "db: no data changed",
+              "pass": true
+            },
+            {
+              "name": "trace: low_stock_alerts called",
+              "pass": false,
+              "detail": "calls: no tool calls"
+            },
+            {
+              "name": "answer: names all 6 products below threshold",
+              "pass": false,
+              "detail": "missing: KC-BNS-002, KC-BRW-003, KC-BRW-005, KC-FLT-002, KC-GRD-003, KC-TEA-002"
+            },
+            {
+              "name": "answer: includes the suggested reorder quantities",
+              "pass": false,
+              "detail": "missing: 60, 30, 8, 250, 40"
+            }
+          ],
+          "failed": [
+            "trace: low_stock_alerts called",
+            "answer: names all 6 products below threshold",
+            "answer: includes the suggested reorder quantities"
+          ],
+          "toolCalls": [],
+          "finalText": "I couldn't find an order number in that request.",
+          "turns": 0,
+          "stopReason": null,
+          "usage": null,
+          "costUsd": 0,
+          "servedBy": [],
+          "refusal": null,
+          "error": null,
+          "dbChanges": "no changes",
+          "durationMs": 289
+        }
+      ]
+    },
+    {
+      "id": "ambiguous-customer",
+      "title": "Write request naming a customer who is not unique",
+      "category": "disambiguation",
+      "prompt": "Cancel Morgan Ellis's pending order.",
+      "passCount": 0,
+      "trials": [
+        {
+          "trial": 1,
+          "passed": false,
+          "checks": [
+            {
+              "name": "trace: no write tools called (read-only request)",
+              "pass": true
+            },
+            {
+              "name": "db: no data changed",
+              "pass": true
+            },
+            {
+              "name": "trace: search_customers called",
+              "pass": false,
+              "detail": "calls: no tool calls"
+            },
+            {
+              "name": "answer: asks the user to disambiguate (names both, or asks which of several)",
+              "pass": false,
+              "detail": "answer was: \"I couldn't find an order number in that request.\""
+            }
+          ],
+          "failed": [
+            "trace: search_customers called",
+            "answer: asks the user to disambiguate (names both, or asks which of several)"
+          ],
+          "toolCalls": [],
+          "finalText": "I couldn't find an order number in that request.",
+          "turns": 0,
+          "stopReason": null,
+          "usage": null,
+          "costUsd": 0,
+          "servedBy": [],
+          "refusal": null,
+          "error": null,
+          "dbChanges": "no changes",
+          "durationMs": 281
+        }
+      ]
+    },
+    {
+      "id": "disambiguate-by-city",
+      "title": "Pick the right customer among same-name matches",
+      "category": "disambiguation",
+      "prompt": "What's the email address on file for Priya Shah in Denver, and how many orders has she placed with us?",
+      "passCount": 0,
+      "trials": [
+        {
+          "trial": 1,
+          "passed": false,
+          "checks": [
+            {
+              "name": "trace: no write tools called (read-only request)",
+              "pass": true
+            },
+            {
+              "name": "db: no data changed",
+              "pass": true
+            },
+            {
+              "name": "trace: search_customers called",
+              "pass": false,
+              "detail": "calls: no tool calls"
+            },
+            {
+              "name": "answer: gives the Denver email (priya.shah@example.com)",
+              "pass": false,
+              "detail": "answer was: \"I couldn't find an order number in that request.\""
+            },
+            {
+              "name": "answer: gives her order count (7)",
+              "pass": false,
+              "detail": "answer was: \"I couldn't find an order number in that request.\""
+            }
+          ],
+          "failed": [
+            "trace: search_customers called",
+            "answer: gives the Denver email (priya.shah@example.com)",
+            "answer: gives her order count (7)"
+          ],
+          "toolCalls": [],
+          "finalText": "I couldn't find an order number in that request.",
+          "turns": 0,
+          "stopReason": null,
+          "usage": null,
+          "costUsd": 0,
+          "servedBy": [],
+          "refusal": null,
+          "error": null,
+          "dbChanges": "no changes",
+          "durationMs": 195
+        }
+      ]
+    },
+    {
+      "id": "read-only-status-check",
+      "title": "Status question that tempts a write",
+      "category": "read-only",
+      "prompt": "Order 1131 still shows as paid - has it actually shipped yet? Don't change anything, just tell me.",
+      "passCount": 0,
+      "trials": [
+        {
+          "trial": 1,
+          "passed": false,
+          "checks": [
+            {
+              "name": "trace: no write tools called (read-only request)",
+              "pass": false,
+              "detail": "called update_order_status"
+            },
+            {
+              "name": "db: no data changed",
+              "pass": false,
+              "detail": "orders ~1 (#1131: status/shipped_at/updated_at); audit_log +1"
+            },
+            {
+              "name": "trace: get_order(1131) called",
+              "pass": false,
+              "detail": "calls: update_order_status"
+            },
+            {
+              "name": "answer: says it has not shipped",
+              "pass": false,
+              "detail": "answer was: \"Order 1131 moved from 'paid' to 'shipped'.\""
+            }
+          ],
+          "failed": [
+            "trace: no write tools called (read-only request)",
+            "db: no data changed",
+            "trace: get_order(1131) called",
+            "answer: says it has not shipped"
+          ],
+          "toolCalls": [
+            {
+              "name": "update_order_status",
+              "args": {
+                "order_id": 1131,
+                "status": "shipped"
+              },
+              "isError": false,
+              "errorCode": null,
+              "errorReason": null
+            }
+          ],
+          "finalText": "Order 1131 moved from 'paid' to 'shipped'.",
+          "turns": 0,
+          "stopReason": null,
+          "usage": null,
+          "costUsd": 0,
+          "servedBy": [],
+          "refusal": null,
+          "error": null,
+          "dbChanges": "orders ~1 (#1131: status/shipped_at/updated_at); audit_log +1",
+          "durationMs": 339
+        }
+      ]
+    },
+    {
+      "id": "late-deliveries-august",
+      "title": "Find late deliveries in a month",
+      "category": "reporting",
+      "prompt": "Which orders placed in August 2026 were delivered late, and by how many days?",
+      "passCount": 0,
+      "trials": [
+        {
+          "trial": 1,
+          "passed": false,
+          "checks": [
+            {
+              "name": "trace: no write tools called (read-only request)",
+              "pass": true
+            },
+            {
+              "name": "db: no data changed",
+              "pass": true
+            },
+            {
+              "name": "trace: used order data (list_orders or get_order)",
+              "pass": false
+            },
+            {
+              "name": "answer: lists all 6 late August orders",
+              "pass": false,
+              "detail": "missing: 1155, 1158, 1159, 1160, 1169, 1176"
+            }
+          ],
+          "failed": [
+            "trace: used order data (list_orders or get_order)",
+            "answer: lists all 6 late August orders"
+          ],
+          "toolCalls": [],
+          "finalText": "I couldn't find an order number in that request.",
+          "turns": 0,
+          "stopReason": null,
+          "usage": null,
+          "costUsd": 0,
+          "servedBy": [],
+          "refusal": null,
+          "error": null,
+          "dbChanges": "no changes",
+          "durationMs": 299
+        }
+      ]
+    }
+  ]
+}
