@@ -1,0 +1,26 @@
+# dependencies & build output
+node_modules/
+dist/
+coverage/
+
+# secrets
+.env
+.env.*
+!.env.example
+
+# generated SQLite databases (recreate with `npm run seed`)
+data/*.db
+data/*.db-*
+*.db-journal
+*.db-wal
+*.db-shm
+
+# eval run archives (latest results per mode in evals/results/*.json are committed)
+evals/results/runs/
+evals/.tmp/
+
+# OS / editor noise
+.DS_Store
+*.log
+.vscode/
+.idea/
