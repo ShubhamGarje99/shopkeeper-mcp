@@ -13,12 +13,6 @@ export function fixedClock(iso: string): Clock {
   return () => new Date(ms);
 }
 
-/** `SHOPKEEPER_NOW` pins the clock; otherwise wall-clock time is used. */
-export function clockFromEnv(env: NodeJS.ProcessEnv = process.env): Clock {
-  const pinned = env.SHOPKEEPER_NOW?.trim();
-  return pinned ? fixedClock(pinned) : systemClock;
-}
-
 /** "2026-09-30T18:00:00Z" (second precision, always UTC). */
 export function isoTimestamp(d: Date): string {
   return d.toISOString().replace(/\.\d{3}Z$/, "Z");

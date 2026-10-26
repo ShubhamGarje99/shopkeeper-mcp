@@ -9,8 +9,8 @@
  */
 import http from "node:http";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { clockFromEnv } from "./clock.js";
-import { resolveDbPath } from "./config.js";
+import { fixedClock, systemClock } from "./clock.js";
+import { resolveRuntimeOptions } from "./config.js";
 import { openOrCreateDatabase } from "./db/connection.js";
 import { createShopkeeperServer } from "./server.js";
 
@@ -33,10 +33,10 @@ function jsonRpcError(res: http.ServerResponse, status: number, message: string)
   res.end(JSON.stringify({ jsonrpc: "2.0", error: { code: -32000, message }, id: null }));
 }
 
-const dbPath = resolveDbPath();
+const { dbPath, now } = resolveRuntimeOptions(process.argv.slice(2));
 const { db, created } = openOrCreateDatabase(dbPath);
 if (created) console.error(`[shopkeeper] no database found - created and seeded ${dbPath}`);
-const clock = clockFromEnv();
+const clock = now ? fixedClock(now) : systemClock;
 
 const httpServer = http.createServer(async (req, res) => {
   const path = new URL(req.url ?? "/", `http://${HOST}`).pathname;

@@ -4,17 +4,25 @@
  * stdout carries MCP JSON-RPC only; all logging goes to stderr.
  */
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { clockFromEnv } from "./clock.js";
-import { resolveDbPath } from "./config.js";
+import { fixedClock, systemClock } from "./clock.js";
+import { resolveRuntimeOptions, USAGE } from "./config.js";
 import { openOrCreateDatabase } from "./db/connection.js";
 import { createShopkeeperServer } from "./server.js";
 
 async function main(): Promise<void> {
-  const dbPath = resolveDbPath();
+  let options;
+  try {
+    options = resolveRuntimeOptions(process.argv.slice(2));
+  } catch (err) {
+    console.error(`[shopkeeper] ${err instanceof Error ? err.message : String(err)}\n${USAGE}`);
+    process.exit(64);
+  }
+  const { dbPath, now } = options;
+  const clock = now ? fixedClock(now) : systemClock;
   const { db, created } = openOrCreateDatabase(dbPath);
   if (created) console.error(`[shopkeeper] no database found - created and seeded ${dbPath}`);
 
-  const server = createShopkeeperServer({ db, clock: clockFromEnv(), actor: "mcp:stdio" });
+  const server = createShopkeeperServer({ db, clock, actor: "mcp:stdio" });
   const transport = new StdioServerTransport();
 
   let closing = false;
@@ -34,7 +42,7 @@ async function main(): Promise<void> {
   process.stdin.on("close", () => void shutdown("stdin closed"));
 
   await server.connect(transport);
-  console.error(`[shopkeeper] ready on stdio (db: ${dbPath})`);
+  console.error(`[shopkeeper] ready on stdio (db: ${dbPath}${now ? `, clock pinned to ${now}` : ""})`);
 }
 
 main().catch((err) => {

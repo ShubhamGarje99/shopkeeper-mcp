@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import path from "node:path";
 import { addDays, daysBetween, fixedClock, isoTimestamp } from "../src/clock.js";
+import { DEFAULT_DB_PATH, resolveRuntimeOptions } from "../src/config.js";
 import { ORDER_STATUSES } from "../src/db/schema.js";
 import { normalizeText, similarity, tokenSimilarity } from "../src/domain/fuzzy.js";
 import { canTransition, STATUS_TRANSITIONS } from "../src/domain/status-machine.js";
@@ -77,5 +79,21 @@ describe("errors", () => {
     const env = toErrorEnvelope(new Error("SQLITE_CORRUPT at /secret/path"));
     expect(env.error.code).toBe("INTERNAL_ERROR");
     expect(env.error.message).not.toMatch(/secret/);
+  });
+});
+
+describe("runtime options", () => {
+  it("CLI flags override env vars, which override defaults", () => {
+    expect(resolveRuntimeOptions([], {})).toEqual({ dbPath: DEFAULT_DB_PATH, now: undefined });
+    expect(resolveRuntimeOptions([], { SHOPKEEPER_DB: "/tmp/a.db", SHOPKEEPER_NOW: "2026-01-01T00:00:00Z" })).toEqual({
+      dbPath: path.resolve("/tmp/a.db"),
+      now: "2026-01-01T00:00:00Z",
+    });
+    expect(
+      resolveRuntimeOptions(["--db", "/tmp/b.db", "--now", "2026-09-30T18:00:00Z"], { SHOPKEEPER_DB: "/tmp/a.db", SHOPKEEPER_NOW: "x" }),
+    ).toEqual({ dbPath: path.resolve("/tmp/b.db"), now: "2026-09-30T18:00:00Z" });
+  });
+  it("rejects unknown flags", () => {
+    expect(() => resolveRuntimeOptions(["--dry-run"], {})).toThrow();
   });
 });
