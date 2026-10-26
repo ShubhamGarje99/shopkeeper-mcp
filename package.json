@@ -36,6 +36,7 @@
     "seed": "tsx src/db/seed-cli.ts",
     "test": "vitest run",
     "test:watch": "vitest",
+    "check": "npm run typecheck && npm test",
     "smoke": "tsx scripts/smoke.ts",
     "inspect": "npx -y @modelcontextprotocol/inspector -e SHOPKEEPER_NOW=2026-09-30T18:00:00Z node dist/index.js",
     "eval": "tsx evals/run.ts --mode live",
