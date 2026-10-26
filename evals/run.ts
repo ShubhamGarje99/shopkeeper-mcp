@@ -69,7 +69,7 @@ if (mode === "live" && !process.env.ANTHROPIC_API_KEY?.trim() && !process.env.AN
   fail(
     [
       "ANTHROPIC_API_KEY is not set, so the live Claude eval cannot run.",
-      "  -> Add it to .env:  cp .env.example .env  and set ANTHROPIC_API_KEY=sk-ant-...",
+      "  -> Add it to .env:  cp .env.example .env  and set ANTHROPIC_API_KEY=<your key>",
       "     (or export ANTHROPIC_API_KEY in your shell), then re-run `npm run eval`.",
       "  No key needed for: npm run eval:oracle | npm run eval:baseline | npm test",
     ].join("\n"),
