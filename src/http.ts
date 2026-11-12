@@ -33,7 +33,12 @@ function jsonRpcError(res: http.ServerResponse, status: number, message: string)
   res.end(JSON.stringify({ jsonrpc: "2.0", error: { code: -32000, message }, id: null }));
 }
 
-const { dbPath, now } = resolveRuntimeOptions(process.argv.slice(2));
+const { dbPath, now, backend } = resolveRuntimeOptions(process.argv.slice(2));
+if (backend === "shopify") {
+  // The HTTP transport has no authentication, so it must never front a live store.
+  console.error("[shopkeeper] the Shopify backend is only available over stdio (node dist/index.js --backend shopify).");
+  process.exit(64);
+}
 const { db, created } = openOrCreateDatabase(dbPath);
 if (created) console.error(`[shopkeeper] no database found - created and seeded ${dbPath}`);
 const clock = now ? fixedClock(now) : systemClock;

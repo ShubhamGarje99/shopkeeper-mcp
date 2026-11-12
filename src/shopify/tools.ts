@@ -81,7 +81,8 @@ function audit(ctx: ShopifyToolContext, action: string, orderId: number, details
 }
 
 export function refundEligibilityFor(order: ShopifyOrder): { eligible: boolean; refundable_cents: number; reason: string | null } {
-  const remaining = Math.max(0, order.total - order.refunded);
+  // Never more than was actually received: netPayment covers partially paid and edited orders.
+  const remaining = Math.max(0, Math.min(order.total - order.refunded, order.netPayment));
   if (order.status === "refunded" || (REFUNDABLE_STATUSES.includes(order.status) && remaining === 0)) {
     return { eligible: false, refundable_cents: 0, reason: "Order is already fully refunded." };
   }

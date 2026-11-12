@@ -30,9 +30,9 @@ function setup(orders = defaultOrders(), over: Partial<ShopifyToolContext["setti
 function defaultOrders() {
   return [
     makeOrder({ number: 1042, createdAt: "2026-09-10T10:00:00Z" }),
-    makeOrder({ number: 1043, createdAt: "2026-09-12T10:00:00Z", displayFinancialStatus: "PENDING", transactions: [], totalPriceSet: { shopMoney: { amount: "58.95", currencyCode: "USD" } }, subtotalPriceSet: { shopMoney: { amount: "58.95", currencyCode: "USD" } }, totalShippingPriceSet: { shopMoney: { amount: "0.00", currencyCode: "USD" } } }),
-    makeOrder({ number: 1044, createdAt: "2026-08-02T10:00:00Z", customer: { id: "gid://shopify/Customer/35", displayName: "Morgan Ellis", email: "morgan.e@example.com", defaultAddress: { city: "Denver", province: "Colorado" } } }),
-    makeOrder({ number: 1045, createdAt: "2026-09-20T10:00:00Z", customer: { id: "gid://shopify/Customer/36", displayName: "Morgan Ellis", email: "morgan.ellis@example.org", defaultAddress: { city: "Boston", province: "Massachusetts" } } }),
+    makeOrder({ number: 1043, createdAt: "2026-09-12T10:00:00Z", displayFinancialStatus: "PENDING", transactions: [], netPaymentSet: { shopMoney: { amount: "0.00", currencyCode: "USD" } }, totalPriceSet: { shopMoney: { amount: "58.95", currencyCode: "USD" } }, subtotalPriceSet: { shopMoney: { amount: "58.95", currencyCode: "USD" } }, totalShippingPriceSet: { shopMoney: { amount: "0.00", currencyCode: "USD" } } }),
+    makeOrder({ number: 1044, createdAt: "2026-08-02T10:00:00Z", customer: { id: "gid://shopify/Customer/35", displayName: "Morgan Ellis", defaultEmailAddress: { emailAddress: "morgan.e@example.com" }, defaultAddress: { city: "Denver", province: "Colorado" } } }),
+    makeOrder({ number: 1045, createdAt: "2026-09-20T10:00:00Z", customer: { id: "gid://shopify/Customer/36", displayName: "Morgan Ellis", defaultEmailAddress: { emailAddress: "morgan.ellis@example.org" }, defaultAddress: { city: "Boston", province: "Massachusetts" } } }),
   ];
 }
 
@@ -195,7 +195,9 @@ describe("issue_refund behaviour", () => {
     const r = await run(issueRefund, ctx, { order_id: 1042, amount_cents: 2500, reason: "Damaged lid", idempotency_key: "refund-1042-damaged" });
     expect(r.data).toMatchObject({ replayed: false, order: { status: "paid", refunded_cents: 2500, refundable_cents: 8000 } });
     const call = fake.calls.find((c) => c.query.includes("mutation Refund"))!;
-    expect(call.query).toContain(`@idempotent(key: "${shopifyIdempotencyKey("refund-1042-damaged")}")`);
+    expect(call.query).toContain("refundCreate(input: $input) @idempotent(key: $key)");
+    expect(call.variables.key).toBe(shopifyIdempotencyKey("refund-1042-damaged"));
+    expect(call.variables.input.allowOverRefunding).toBe(false);
     expect(call.variables.input.transactions[0]).toMatchObject({ parentId: "gid://shopify/OrderTransaction/55", amount: "25.00", kind: "REFUND", gateway: "shopify_payments" });
     expect(call.variables.input.notify).toBe(false);
     expect(call.variables.input.note).toContain("[shopkeeper:refund-1042-damaged]");
@@ -217,6 +219,17 @@ describe("issue_refund behaviour", () => {
     const r = await run(issueRefund, ctx, { order_id: 1042, amount_cents: 10500, reason: "Full refund", idempotency_key: "refund-1042-full" });
     expect(r.data.order).toMatchObject({ status: "refunded", refundable_cents: 0 });
     expect(await code(run(issueRefund, ctx, { order_id: 1042, amount_cents: 100, reason: "again please", idempotency_key: "refund-1042-more" }))).toMatchObject({ reason: "ORDER_FULLY_REFUNDED" });
+  });
+  it("never offers more than was actually received (partially paid order)", async () => {
+    const orders = [makeOrder({ number: 2002, netPaymentSet: { shopMoney: { amount: "40.00", currencyCode: "USD" } } })];
+    const { ctx, fake } = setup(orders);
+    expect((await run(getOrder, ctx, { order_id: 2002 })).data.financials.refundable_cents).toBe(4000);
+    expect(await code(run(issueRefund, ctx, { order_id: 2002, amount_cents: 5000, reason: "more than paid", idempotency_key: "refund-2002-over" }))).toMatchObject({ reason: "REFUND_EXCEEDS_REFUNDABLE" });
+    expect(fake.mutationCalls("Refund")).toBe(0);
+  });
+  it("finds an order whose name has a custom prefix", async () => {
+    const { ctx } = setup([makeOrder({ number: 3001, name: "EU3001" })]);
+    expect((await run(getOrder, ctx, { order_id: 3001 })).data.order.name).toBe("EU3001");
   });
   it("refuses when no single payment covers the amount", async () => {
     const orders = [makeOrder({ number: 2001, transactions: [{ id: "gid://shopify/OrderTransaction/1", kind: "SALE", status: "SUCCESS", gateway: "manual", amountSet: { shopMoney: { amount: "20.00", currencyCode: "USD" } } }] })];

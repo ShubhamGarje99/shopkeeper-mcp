@@ -52,24 +52,30 @@ Not available in Shopify mode: `create_invoice`, `low_stock_alerts` (Shopify has
 ## Guardrails (same ideas as the demo store, enforced before anything is sent to Shopify)
 
 - Writes off unless explicitly enabled.
-- Refund must be > 0, within the refundable remainder, and under the per-refund cap.
+- Refund must be > 0, within the refundable remainder (never more than the payments actually received), and under the per-refund cap.
 - Unpaid, cancelled and fully refunded orders are refused.
-- Idempotency: a refund's `idempotency_key` is stored in the refund note on the Shopify order. The same key + amount replays the original refund; the same key with a different amount is a `CONFLICT`. The mutation also carries a deterministic `@idempotent` key. Keys are checked per order.
+- Idempotency: a refund's `idempotency_key` is stored in the refund note on the Shopify order. The same key + amount replays the original refund; the same key with a different amount is a `CONFLICT`. The mutation also carries a deterministic `@idempotent` key, which Shopify requires from API 2026-04. Keys are checked per order.
 - Status moves follow the state machine; `refunded` is only reached through refunds; a paid order is unwound with a refund, never a cancel.
 - After a status change the order is re-read; if Shopify has not caught up (e.g. cancellation runs as a background job) the result says `pending_confirmation`.
 
 ## What is verified and what is not
 
-**Verified (automated, 27 tests):** money parsing, status derivation, the guardrails above, idempotent replay, the order state machine, MCP schema/structured-output validation, error mapping, token never leaking. These run against `tests/shopify-fake.ts`, an in-memory imitation of the Admin API that I wrote.
+**Verified against Shopify's published schema.** `npm run shopify:validate` downloads the Admin GraphQL schema for the configured API version from Shopify's public docs endpoint and validates every query, mutation, input field and enum value this backend uses. All pass on `2026-04`. This check caught and fixed two real errors (a removed `orderCancel` argument and a misplaced `@idempotent` directive), so run it again before changing `SHOPIFY_API_VERSION`.
 
-**NOT verified against a real Shopify store.** The GraphQL field names and mutation shapes are written from Shopify's documentation, not exercised live. Specific things to confirm on a development store: the `@idempotent` directive on `2026-04`; the `orderCancel` / `fulfillmentCreate` / `fulfillmentEventCreate` / `refundCreate` payloads; `displayStatus` values on fulfilments; scope names. If a live call fails, the error comes back as `UPSTREAM_ERROR` with Shopify's message.
+**Verified by automated tests (29).** Money parsing, status derivation, every guardrail above, idempotent replay, the order state machine, MCP schema and structured-output validation, error mapping, and the token never leaking. These run against `tests/shopify-fake.ts`, an in-memory imitation of the Admin API, which refuses any document that is not in the schema-validated set.
 
-## Live test checklist (development store, ~30 minutes)
+**Not yet verified on a live store.** Schema validity proves Shopify will parse the calls, not that they behave as intended. Still to confirm on a development store: required access scopes, how quickly `orderCancel` shows up, refunds against the Bogus gateway, and `fulfillmentEventCreate` marking an order delivered. A live failure comes back as `UPSTREAM_ERROR` with Shopify's message.
 
-1. Create a free Shopify development store; add the Bogus Gateway (Settings > Payments > test mode).
+## Live test checklist (development store, ~20 minutes)
+
+1. Create a free Shopify development store; enable the Bogus Gateway (Settings > Payments > test mode).
 2. Create a custom app with the scopes above; copy the Admin API token.
-3. Create 3 test orders: one paid, one pending (manual payment), one more paid to ship.
-4. Start read-only. Check `get_order`, `list_orders`, `sales_report`, `search_customers` against what the admin shows.
-5. Restart with `SHOPKEEPER_SHOPIFY_WRITES=1`. On the paid order: refund a small amount; repeat the same call (expect `replayed: true`, one refund in admin); try over-refund (expect refusal).
-6. Walk another order paid -> shipped -> delivered; cancel the pending one (expect `pending_confirmation` or confirmed).
-7. Note any `UPSTREAM_ERROR` and fix the query it points at.
+3. Create 3 test orders: two paid, one pending (manual payment).
+4. Run the read-only preflight and compare its output with the admin:
+   `SHOPIFY_STORE=... SHOPIFY_ADMIN_TOKEN=... npm run shopify:check`
+   It sends no mutations and forces writes off.
+5. Connect the server to Claude with `SHOPKEEPER_SHOPIFY_WRITES=1`. On a paid order: refund a small amount; ask for the same refund again (expect `replayed: true` and one refund in the admin); try an over-refund (expect a refusal).
+6. Walk the other paid order paid -> shipped -> delivered; cancel the pending one (expect confirmed or `pending_confirmation`).
+7. Note any `UPSTREAM_ERROR` and fix the operation it points at in `src/shopify/operations.ts`.
+
+The Shopify backend is stdio-only. The optional HTTP transport has no authentication and refuses to start with `--backend shopify`.

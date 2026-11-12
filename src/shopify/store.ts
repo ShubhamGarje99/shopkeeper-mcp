@@ -3,33 +3,7 @@ import type { OrderStatus } from "../db/schema.js";
 import { ConflictError, GuardrailViolation, NotFoundError, UpstreamError } from "../errors.js";
 import type { ShopifyClient } from "./client.js";
 import { decimalToMinor, gidToNumber, minorToDecimal } from "./money.js";
-
-// ---- GraphQL --------------------------------------------------------------
-
-const MONEY = "{ shopMoney { amount currencyCode } }";
-
-const ORDER_CORE = `
-  id
-  name
-  createdAt
-  cancelledAt
-  displayFinancialStatus
-  displayFulfillmentStatus
-  totalPriceSet ${MONEY}
-  subtotalPriceSet ${MONEY}
-  totalShippingPriceSet ${MONEY}
-  totalRefundedSet ${MONEY}
-  customer { id displayName email defaultAddress { city province } }
-  refunds { id createdAt note totalRefundedSet ${MONEY} }
-  fulfillments(first: 10) { id status displayStatus createdAt deliveredAt trackingInfo { number company } }
-`;
-
-const ORDER_DETAIL = `
-  ${ORDER_CORE}
-  lineItems(first: 50) { nodes { name sku quantity originalUnitPriceSet ${MONEY} product { id } } }
-  transactions(first: 20) { id kind status gateway amountSet ${MONEY} }
-  fulfillmentOrders(first: 10) { nodes { id status } }
-`;
+import { CANCEL, CUSTOMERS, DELIVERED, FULFIL, MARK_PAID, ORDER_BY_NAME, ORDERS_PAGE, REFUND, SHOP_INFO } from "./operations.js";
 
 // ---- Normalised model -----------------------------------------------------
 
@@ -57,7 +31,9 @@ export interface RawOrder {
   subtotalPriceSet: ShopifyMoneySet;
   totalShippingPriceSet: ShopifyMoneySet;
   totalRefundedSet: ShopifyMoneySet;
-  customer: { id: string; displayName: string | null; email: string | null; defaultAddress: { city: string | null; province: string | null } | null } | null;
+  /** Payments received minus refunds: the most that can still be refunded. */
+  netPaymentSet: ShopifyMoneySet;
+  customer: { id: string; displayName: string | null; defaultEmailAddress: { emailAddress: string | null } | null; defaultAddress: { city: string | null; province: string | null } | null } | null;
   refunds: { id: string; createdAt: string; note: string | null; totalRefundedSet: ShopifyMoneySet }[];
   fulfillments: RawFulfillment[];
   lineItems?: { nodes: { name: string; sku: string | null; quantity: number; originalUnitPriceSet: ShopifyMoneySet; product: { id: string } | null }[] };
@@ -80,6 +56,8 @@ export interface ShopifyOrder {
   shipping: number;
   total: number;
   refunded: number;
+  /** Payments received minus refunds, in minor units. */
+  netPayment: number;
   customer: { id: number; name: string; email: string; city: string; region: string } | null;
   raw: RawOrder;
 }
@@ -106,7 +84,7 @@ export function deriveStatus(raw: RawOrder): OrderStatus {
   const live = raw.fulfillments.filter((f) => f.status !== "CANCELLED" && f.status !== "ERROR" && f.status !== "FAILURE");
   if (live.length === 0) return "paid";
   if (live.every((f) => f.displayStatus === "DELIVERED" || f.deliveredAt)) return "delivered";
-  return raw.displayFulfillmentStatus === "FULFILLED" || live.length > 0 ? "shipped" : "paid";
+  return "shipped";
 }
 
 export function normalizeOrder(raw: RawOrder): ShopifyOrder {
@@ -130,11 +108,12 @@ export function normalizeOrder(raw: RawOrder): ShopifyOrder {
     shipping: money(raw.totalShippingPriceSet),
     total: money(raw.totalPriceSet),
     refunded: money(raw.totalRefundedSet),
+    netPayment: money(raw.netPaymentSet),
     customer: c
       ? {
           id: gidToNumber(c.id),
           name: c.displayName ?? "(no name)",
-          email: c.email ?? "",
+          email: c.defaultEmailAddress?.emailAddress ?? "",
           city: c.defaultAddress?.city ?? "",
           region: c.defaultAddress?.province ?? "",
         }
@@ -166,7 +145,6 @@ function assertNoUserErrors(op: string, errors: UserError[] | undefined | null):
 }
 
 export const MAX_SCAN_ORDERS = 1000;
-const PAGE = 50;
 
 export interface ListFilter {
   /** inclusive YYYY-MM-DD */
@@ -187,31 +165,33 @@ export class ShopifyStore {
   constructor(private readonly client: ShopifyClient) {}
 
   async getOrder(number: number): Promise<ShopifyOrder> {
-    const data = await this.client.graphql<{ orders: { nodes: RawOrder[] } }>(
-      `query OrderByName($q: String!) { orders(first: 5, query: $q) { nodes { ${ORDER_DETAIL} } } }`,
-      { q: `name:#${number}` },
-    );
-    const match = data.orders.nodes.map(normalizeOrder).find((o) => o.id === number);
-    if (!match) throw new NotFoundError("ORDER_NOT_FOUND", `Order ${number} does not exist (or is older than the 60 days this app token can read).`, { order_id: number });
-    return match;
+    // "#1042" is the default name format; stores with a custom prefix/suffix need the bare number.
+    for (const q of [`name:#${number}`, `name:${number}`]) {
+      const data = await this.client.graphql<{ orders: { nodes: RawOrder[] } }>(ORDER_BY_NAME, { q });
+      const match = data.orders.nodes.map(normalizeOrder).find((o) => o.id === number);
+      if (match) return match;
+    }
+    throw new NotFoundError("ORDER_NOT_FOUND", `Order ${number} does not exist (or is older than the 60 days this app token can read).`, { order_id: number });
+  }
+
+  /** Cheap authenticated call: confirms the store, token and API version work. */
+  async shopInfo(): Promise<{ name: string; domain: string; currency: string }> {
+    const data = await this.client.graphql<{ shop: { name: string; myshopifyDomain: string; currencyCode: string } }>(SHOP_INFO);
+    return { name: data.shop.name, domain: data.shop.myshopifyDomain, currency: data.shop.currencyCode };
   }
 
   /** Newest first. `truncated` is true when the scan stopped at the cap with more pages remaining. */
   async listOrders(filter: ListFilter): Promise<{ orders: ShopifyOrder[]; truncated: boolean }> {
     const parts: string[] = [];
-    if (filter.placedFrom) parts.push(`created_at:>=${filter.placedFrom}`);
-    if (filter.placedTo) parts.push(`created_at:<${nextDay(filter.placedTo)}`);
+    if (filter.placedFrom) parts.push(`created_at:>='${filter.placedFrom}T00:00:00Z'`);
+    if (filter.placedTo) parts.push(`created_at:<'${nextDay(filter.placedTo)}T00:00:00Z'`);
     if (filter.customerId) parts.push(`customer_id:${filter.customerId}`);
     const cap = filter.maxOrders ?? MAX_SCAN_ORDERS;
     const orders: ShopifyOrder[] = [];
     let after: string | null = null;
     for (;;) {
       const data: { orders: { nodes: RawOrder[]; pageInfo: { hasNextPage: boolean; endCursor: string | null } } } = await this.client.graphql(
-        `query Orders($q: String, $after: String) {
-           orders(first: ${PAGE}, after: $after, query: $q, sortKey: CREATED_AT, reverse: true) {
-             nodes { ${ORDER_CORE} } pageInfo { hasNextPage endCursor }
-           }
-         }`,
+        ORDERS_PAGE,
         { q: parts.join(" ") || null, after },
       );
       for (const n of data.orders.nodes) orders.push(normalizeOrder(n));
@@ -225,19 +205,15 @@ export class ShopifyStore {
     { id: number; name: string; email: string; city: string; region: string; order_count: number; spent: number; currency: string; last_order_at: string | null }[]
   > {
     const data = await this.client.graphql<{
-      customers: { nodes: { id: string; displayName: string | null; email: string | null; numberOfOrders: string; amountSpent: { amount: string; currencyCode: string }; defaultAddress: { city: string | null; province: string | null } | null; lastOrder: { createdAt: string } | null }[] };
+      customers: { nodes: { id: string; displayName: string | null; defaultEmailAddress: { emailAddress: string | null } | null; numberOfOrders: string; amountSpent: { amount: string; currencyCode: string }; defaultAddress: { city: string | null; province: string | null } | null; lastOrder: { createdAt: string } | null }[] };
     }>(
-      `query Customers($q: String!, $n: Int!) {
-         customers(first: $n, query: $q) {
-           nodes { id displayName email numberOfOrders amountSpent { amount currencyCode } defaultAddress { city province } lastOrder { createdAt } }
-         }
-       }`,
+      CUSTOMERS,
       { q: query, n: Math.min(limit * 3, 50) },
     );
     return data.customers.nodes.map((c) => ({
       id: gidToNumber(c.id),
       name: c.displayName ?? "(no name)",
-      email: c.email ?? "",
+      email: c.defaultEmailAddress?.emailAddress ?? "",
       city: c.defaultAddress?.city ?? "",
       region: c.defaultAddress?.province ?? "",
       order_count: Number(c.numberOfOrders),
@@ -251,7 +227,7 @@ export class ShopifyStore {
 
   async markPaid(order: ShopifyOrder): Promise<void> {
     const data = await this.client.graphql<{ orderMarkAsPaid: { userErrors: UserError[] } }>(
-      `mutation MarkPaid($input: OrderMarkAsPaidInput!) { orderMarkAsPaid(input: $input) { order { id } userErrors { field message } } }`,
+      MARK_PAID,
       { input: { id: order.gid } },
     );
     assertNoUserErrors("orderMarkAsPaid", data.orderMarkAsPaid.userErrors);
@@ -259,7 +235,7 @@ export class ShopifyStore {
 
   async cancel(order: ShopifyOrder): Promise<void> {
     const data = await this.client.graphql<{ orderCancel: { userErrors: UserError[] } }>(
-      `mutation Cancel($id: ID!) { orderCancel(orderId: $id, reason: OTHER, refund: false, restock: true, notifyCustomer: false) { job { id } userErrors { field message } } }`,
+      CANCEL,
       { id: order.gid },
     );
     assertNoUserErrors("orderCancel", data.orderCancel.userErrors);
@@ -271,7 +247,7 @@ export class ShopifyStore {
       throw new ConflictError("NOTHING_TO_FULFILL", `Order ${order.id} has no open fulfilment orders (it may be handled by a fulfilment service or already shipped).`, { order_id: order.id });
     }
     const data = await this.client.graphql<{ fulfillmentCreate: { userErrors: UserError[] } }>(
-      `mutation Fulfil($f: FulfillmentInput!) { fulfillmentCreate(fulfillment: $f) { fulfillment { id status } userErrors { field message } } }`,
+      FULFIL,
       { f: { notifyCustomer: false, lineItemsByFulfillmentOrder: open.map((f) => ({ fulfillmentOrderId: f.id })) } },
     );
     assertNoUserErrors("fulfillmentCreate", data.fulfillmentCreate.userErrors);
@@ -284,7 +260,7 @@ export class ShopifyStore {
     }
     for (const f of targets) {
       const data = await this.client.graphql<{ fulfillmentEventCreate: { userErrors: UserError[] } }>(
-        `mutation Delivered($e: FulfillmentEventInput!) { fulfillmentEventCreate(fulfillmentEvent: $e) { fulfillmentEvent { id status } userErrors { field message } } }`,
+        DELIVERED,
         { e: { fulfillmentId: f.id, status: "DELIVERED" } },
       );
       assertNoUserErrors("fulfillmentEventCreate", data.fulfillmentEventCreate.userErrors);
@@ -302,13 +278,13 @@ export class ShopifyStore {
     const data = await this.client.graphql<{
       refundCreate: { refund: { id: string; createdAt: string } | null; userErrors: UserError[] };
     }>(
-      `mutation Refund($input: RefundInput!) @idempotent(key: "${shopifyIdempotencyKey(key)}") {
-         refundCreate(input: $input) { refund { id createdAt } userErrors { field message } }
-       }`,
+      REFUND,
       {
+        key: shopifyIdempotencyKey(key),
         input: {
           orderId: order.gid,
           notify: false,
+          allowOverRefunding: false,
           note: `${reason} ${REFUND_MARKER(key)}`,
           transactions: [{ orderId: order.gid, parentId: parent.id, amount: minorToDecimal(amountMinor, order.currency), kind: "REFUND", gateway: parent.gateway }],
         },

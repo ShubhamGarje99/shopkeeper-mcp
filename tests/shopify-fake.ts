@@ -5,6 +5,7 @@
  * It is NOT proof of live compatibility - see README "Shopify: verified vs not".
  */
 import type { FetchLike } from "../src/shopify/client.js";
+import { ALL_OPERATIONS } from "../src/shopify/operations.js";
 import type { RawOrder } from "../src/shopify/store.js";
 
 const set = (amount: string, currencyCode = "USD") => ({ shopMoney: { amount, currencyCode } });
@@ -22,7 +23,8 @@ export function makeOrder(over: Partial<RawOrder> & { number: number }): RawOrde
     subtotalPriceSet: set("100.00"),
     totalShippingPriceSet: set("5.00"),
     totalRefundedSet: set("0.00"),
-    customer: { id: "gid://shopify/Customer/34", displayName: "Marcus Reid", email: "marcus.reid@example.com", defaultAddress: { city: "Austin", province: "Texas" } },
+    netPaymentSet: set("105.00"),
+    customer: { id: "gid://shopify/Customer/34", displayName: "Marcus Reid", defaultEmailAddress: { emailAddress: "marcus.reid@example.com" }, defaultAddress: { city: "Austin", province: "Texas" } },
     refunds: [],
     fulfillments: [],
     lineItems: { nodes: [{ name: "Gooseneck Kettle", sku: "KET-1", quantity: 1, originalUnitPriceSet: set("100.00"), product: { id: "gid://shopify/Product/7" } }] },
@@ -43,6 +45,8 @@ export interface FakeShopify {
 export function fakeShopify(orders: RawOrder[]): FakeShopify {
   const calls: FakeShopify["calls"] = [];
   let refundSeq = 800;
+  const idempotent = new Map<string, { id: string; createdAt: string }>();
+  const known = new Set(Object.values(ALL_OPERATIONS));
   const findByGid = (gid: unknown) => orders.find((o) => o.id === gid);
 
   const reply = (data: unknown) => ({ ok: true, status: 200, text: async () => JSON.stringify({ data }) });
@@ -50,15 +54,18 @@ export function fakeShopify(orders: RawOrder[]): FakeShopify {
   const fetch: FetchLike = async (_url, init) => {
     const { query, variables } = JSON.parse(init.body) as { query: string; variables: Record<string, any> };
     calls.push({ query, variables });
+    // Only documents that `npm run shopify:validate` checks against the real schema may be sent.
+    if (!known.has(query)) throw new Error(`fake Shopify: document is not in ALL_OPERATIONS: ${query.slice(0, 60)}`);
 
     if (query.includes("query OrderByName")) {
-      const n = /#(\d+)/.exec(String(variables.q))?.[1];
-      return reply({ orders: { nodes: orders.filter((o) => o.name === `#${n}`) } });
+      const n = /^name:#(\d+)$/.exec(String(variables.q))?.[1];
+      const bare = /^name:(\d+)$/.exec(String(variables.q))?.[1];
+      return reply({ orders: { nodes: orders.filter((o) => (n && o.name === `#${n}`) || (bare && o.name.includes(bare))) } });
     }
     if (query.includes("query Orders(")) {
       const q = String(variables.q ?? "");
-      const from = /created_at:>=(\S+)/.exec(q)?.[1];
-      const before = /created_at:<(\S+)/.exec(q)?.[1];
+      const from = /created_at:>='(\d{4}-\d{2}-\d{2})T00:00:00Z'/.exec(q)?.[1];
+      const before = /created_at:<'(\d{4}-\d{2}-\d{2})T00:00:00Z'/.exec(q)?.[1];
       const cust = /customer_id:(\d+)/.exec(q)?.[1];
       const rows = orders
         .filter((o) => (!from || o.createdAt.slice(0, 10) >= from) && (!before || o.createdAt.slice(0, 10) < before) && (!cust || o.customer?.id.endsWith(`/${cust}`)))
@@ -70,7 +77,7 @@ export function fakeShopify(orders: RawOrder[]): FakeShopify {
       const seen = new Map<string, any>();
       for (const o of orders) {
         const c = o.customer;
-        if (c && `${c.displayName} ${c.email}`.toLowerCase().includes(q)) {
+        if (c && `${c.displayName} ${c.defaultEmailAddress?.emailAddress}`.toLowerCase().includes(q)) {
           seen.set(c.id, { ...c, numberOfOrders: "2", amountSpent: { amount: "210.00", currencyCode: "USD" }, lastOrder: { createdAt: o.createdAt } });
         }
       }
@@ -79,16 +86,24 @@ export function fakeShopify(orders: RawOrder[]): FakeShopify {
     if (query.includes("mutation Refund")) {
       const input = variables.input;
       const o = findByGid(input.orderId)!;
+      // Shopify requires a UUID-shaped key and replays the stored result for a repeated key.
+      if (!/^[0-9a-f-]{36}$/.test(String(variables.key))) return reply({ refundCreate: { refund: null, userErrors: [{ field: null, message: "Idempotency key is required" }] } });
+      const cached = idempotent.get(variables.key);
+      if (cached) return reply({ refundCreate: { refund: cached, userErrors: [] } });
       const amount = input.transactions[0].amount as string;
       const total = Number(o.totalRefundedSet.shopMoney.amount) + Number(amount);
       o.totalRefundedSet = set(total.toFixed(2));
+      o.netPaymentSet = set((Number(o.netPaymentSet.shopMoney.amount) - Number(amount)).toFixed(2));
       o.displayFinancialStatus = total >= Number(o.totalPriceSet.shopMoney.amount) ? "REFUNDED" : "PARTIALLY_REFUNDED";
       const id = `gid://shopify/Refund/${++refundSeq}`;
       o.refunds.push({ id, createdAt: "2026-09-30T18:00:00Z", note: input.note, totalRefundedSet: set(amount) });
+      idempotent.set(variables.key, { id, createdAt: "2026-09-30T18:00:00Z" });
       return reply({ refundCreate: { refund: { id, createdAt: "2026-09-30T18:00:00Z" }, userErrors: [] } });
     }
     if (query.includes("mutation MarkPaid")) {
-      findByGid(variables.input.id)!.displayFinancialStatus = "PAID";
+      const paidOrder = findByGid(variables.input.id)!;
+      paidOrder.displayFinancialStatus = "PAID";
+      paidOrder.netPaymentSet = paidOrder.totalPriceSet;
       return reply({ orderMarkAsPaid: { userErrors: [] } });
     }
     if (query.includes("mutation Cancel")) {

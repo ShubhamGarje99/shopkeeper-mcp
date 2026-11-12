@@ -43,7 +43,9 @@
     "eval": "tsx evals/run.ts --mode live",
     "eval:oracle": "tsx evals/run.ts --mode oracle",
     "eval:baseline": "tsx evals/run.ts --mode baseline",
-    "eval:report": "tsx evals/run.ts --report-only"
+    "eval:report": "tsx evals/run.ts --report-only",
+    "shopify:validate": "tsx scripts/shopify-validate.ts",
+    "shopify:check": "tsx scripts/shopify-check.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
@@ -53,6 +55,7 @@
     "@anthropic-ai/sdk": "^1.3.0",
     "@types/node": "^26.6.5",
     "dotenv": "^18.0.9",
+    "graphql": "^17.1.0",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "vitest": "^5.0.5"
