@@ -21,9 +21,13 @@ export interface RuntimeOptions {
   dbPath: string;
   /** Pinned store clock (ISO 8601), if any. */
   now: string | undefined;
+  /** "sqlite" (demo store, default) or "shopify" (live store; see README). */
+  backend: "sqlite" | "shopify";
 }
 
-export const USAGE = `Usage: shopkeeper-mcp [--db <path>] [--now <iso-timestamp>]
+export const USAGE = `Usage: shopkeeper-mcp [--backend sqlite|shopify] [--db <path>] [--now <iso-timestamp>]
+  --backend  sqlite = bundled demo store (default, or $SHOPKEEPER_BACKEND); shopify = live store, needs
+             SHOPIFY_STORE and SHOPIFY_ADMIN_TOKEN (writes stay off unless SHOPKEEPER_SHOPIFY_WRITES=1)
   --db   SQLite file (default: $SHOPKEEPER_DB or <repo>/data/shop.db; created and seeded if missing)
   --now  pin the store clock, e.g. 2026-09-30T18:00:00Z (default: $SHOPKEEPER_NOW or wall-clock time)`;
 
@@ -31,11 +35,16 @@ export const USAGE = `Usage: shopkeeper-mcp [--db <path>] [--now <iso-timestamp>
 export function resolveRuntimeOptions(argv: string[], env: NodeJS.ProcessEnv = process.env): RuntimeOptions {
   const { values } = parseArgs({
     args: argv,
-    options: { db: { type: "string" }, now: { type: "string" } },
+    options: { db: { type: "string" }, now: { type: "string" }, backend: { type: "string" } },
     strict: true,
     allowPositionals: false,
   });
+  const backend = (values.backend ?? env.SHOPKEEPER_BACKEND ?? "sqlite").trim();
+  if (backend !== "sqlite" && backend !== "shopify") {
+    throw new Error(`--backend must be 'sqlite' or 'shopify', got '${backend}'`);
+  }
   return {
+    backend,
     dbPath: values.db ? path.resolve(values.db) : resolveDbPath(env),
     now: values.now?.trim() || env.SHOPKEEPER_NOW?.trim() || undefined,
   };

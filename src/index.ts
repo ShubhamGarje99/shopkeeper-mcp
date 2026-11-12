@@ -8,6 +8,10 @@ import { fixedClock, systemClock } from "./clock.js";
 import { resolveRuntimeOptions, USAGE } from "./config.js";
 import { openOrCreateDatabase } from "./db/connection.js";
 import { createShopkeeperServer } from "./server.js";
+import { ShopifyClient } from "./shopify/client.js";
+import { resolveShopifySettings } from "./shopify/config.js";
+import { createShopifyServer } from "./shopify/server.js";
+import { ShopifyStore } from "./shopify/store.js";
 
 async function main(): Promise<void> {
   let options;
@@ -17,12 +21,30 @@ async function main(): Promise<void> {
     console.error(`[shopkeeper] ${err instanceof Error ? err.message : String(err)}\n${USAGE}`);
     process.exit(64);
   }
-  const { dbPath, now } = options;
+  const { dbPath, now, backend } = options;
   const clock = now ? fixedClock(now) : systemClock;
-  const { db, created } = openOrCreateDatabase(dbPath);
-  if (created) console.error(`[shopkeeper] no database found - created and seeded ${dbPath}`);
 
-  const server = createShopkeeperServer({ db, clock, actor: "mcp:stdio" });
+  let server;
+  let closeBackend = () => {};
+  let ready: string;
+  if (backend === "shopify") {
+    let settings;
+    try {
+      settings = resolveShopifySettings();
+    } catch (err) {
+      console.error(`[shopkeeper] ${err instanceof Error ? err.message : String(err)}\n${USAGE}`);
+      process.exit(64);
+    }
+    const store = new ShopifyStore(new ShopifyClient(settings));
+    server = createShopifyServer({ store, settings, clock, actor: "mcp:stdio" }, settings.shop);
+    ready = `shopify ${settings.shop}, api ${settings.apiVersion}, writes ${settings.writesEnabled ? "ENABLED" : "disabled (read-only)"}`;
+  } else {
+    const { db, created } = openOrCreateDatabase(dbPath);
+    if (created) console.error(`[shopkeeper] no database found - created and seeded ${dbPath}`);
+    server = createShopkeeperServer({ db, clock, actor: "mcp:stdio" });
+    closeBackend = () => db.close();
+    ready = `db: ${dbPath}`;
+  }
   const transport = new StdioServerTransport();
 
   let closing = false;
@@ -33,7 +55,7 @@ async function main(): Promise<void> {
     try {
       await server.close();
     } finally {
-      db.close();
+      closeBackend();
       process.exit(0);
     }
   };
@@ -42,7 +64,7 @@ async function main(): Promise<void> {
   process.stdin.on("close", () => void shutdown("stdin closed"));
 
   await server.connect(transport);
-  console.error(`[shopkeeper] ready on stdio (db: ${dbPath}${now ? `, clock pinned to ${now}` : ""})`);
+  console.error(`[shopkeeper] ready on stdio (${ready}${now ? `, clock pinned to ${now}` : ""})`);
 }
 
 main().catch((err) => {

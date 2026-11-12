@@ -95,6 +95,10 @@ npm run inspect       # open the MCP Inspector web UI against the server
 
 The seed data runs through 2026-09-29, so pin `--now 2026-09-30T18:00:00Z` for reproducible "late / overdue" answers (the snippets below do).
 
+### Shopify (live store)
+
+Besides the bundled demo store, the server can run against a real Shopify store with `--backend shopify` (read-only by default; refunds and status changes must be switched on explicitly). Setup, scopes, guardrails, and an honest list of what is and is not verified live: [docs/SHOPIFY.md](docs/SHOPIFY.md).
+
 ### Claude Desktop
 
 Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows):

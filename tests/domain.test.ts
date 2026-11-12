@@ -84,14 +84,21 @@ describe("errors", () => {
 
 describe("runtime options", () => {
   it("CLI flags override env vars, which override defaults", () => {
-    expect(resolveRuntimeOptions([], {})).toEqual({ dbPath: DEFAULT_DB_PATH, now: undefined });
+    expect(resolveRuntimeOptions([], {})).toEqual({ dbPath: DEFAULT_DB_PATH, now: undefined, backend: "sqlite" });
     expect(resolveRuntimeOptions([], { SHOPKEEPER_DB: "/tmp/a.db", SHOPKEEPER_NOW: "2026-01-01T00:00:00Z" })).toEqual({
       dbPath: path.resolve("/tmp/a.db"),
       now: "2026-01-01T00:00:00Z",
+      backend: "sqlite",
     });
     expect(
       resolveRuntimeOptions(["--db", "/tmp/b.db", "--now", "2026-09-30T18:00:00Z"], { SHOPKEEPER_DB: "/tmp/a.db", SHOPKEEPER_NOW: "x" }),
-    ).toEqual({ dbPath: path.resolve("/tmp/b.db"), now: "2026-09-30T18:00:00Z" });
+    ).toEqual({ dbPath: path.resolve("/tmp/b.db"), now: "2026-09-30T18:00:00Z", backend: "sqlite" });
+  });
+  it("selects the backend from a flag or env, and rejects unknown values", () => {
+    expect(resolveRuntimeOptions(["--backend", "shopify"], {}).backend).toBe("shopify");
+    expect(resolveRuntimeOptions([], { SHOPKEEPER_BACKEND: "shopify" }).backend).toBe("shopify");
+    expect(resolveRuntimeOptions(["--backend", "sqlite"], { SHOPKEEPER_BACKEND: "shopify" }).backend).toBe("sqlite");
+    expect(() => resolveRuntimeOptions(["--backend", "woocommerce"], {})).toThrow(/--backend/);
   });
   it("rejects unknown flags", () => {
     expect(() => resolveRuntimeOptions(["--dry-run"], {})).toThrow();

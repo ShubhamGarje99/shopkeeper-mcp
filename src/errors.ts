@@ -10,7 +10,7 @@
  * specific rule that fired.
  */
 
-export type ErrorCode = "NOT_FOUND" | "VALIDATION_ERROR" | "GUARDRAIL_VIOLATION" | "CONFLICT" | "INTERNAL_ERROR";
+export type ErrorCode = "NOT_FOUND" | "VALIDATION_ERROR" | "GUARDRAIL_VIOLATION" | "CONFLICT" | "UPSTREAM_ERROR" | "INTERNAL_ERROR";
 
 export type ErrorDetails = Record<string, unknown>;
 
@@ -49,6 +49,11 @@ export class GuardrailViolation extends ShopError {
 /** The action conflicts with current state (duplicate invoice, invalid status transition, key reuse). */
 export class ConflictError extends ShopError {
   readonly code = "CONFLICT" as const;
+}
+
+/** The Shopify Admin API failed or rejected the request (network, auth, throttling, userErrors). */
+export class UpstreamError extends ShopError {
+  readonly code = "UPSTREAM_ERROR" as const;
 }
 
 export interface ErrorEnvelope {
