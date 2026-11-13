@@ -27,7 +27,7 @@ export function makeOrder(over: Partial<RawOrder> & { number: number }): RawOrde
     customer: { id: "gid://shopify/Customer/34", displayName: "Marcus Reid", defaultEmailAddress: { emailAddress: "marcus.reid@example.com" }, defaultAddress: { city: "Austin", province: "Texas" } },
     refunds: [],
     fulfillments: [],
-    lineItems: { nodes: [{ name: "Gooseneck Kettle", sku: "KET-1", quantity: 1, originalUnitPriceSet: set("100.00"), product: { id: "gid://shopify/Product/7" } }] },
+    lineItems: { nodes: [{ name: "Gooseneck Kettle", sku: "KET-1", quantity: 1, originalUnitPriceSet: set("100.00") }] },
     transactions: [{ id: "gid://shopify/OrderTransaction/55", kind: "SALE", status: "SUCCESS", gateway: "shopify_payments", amountSet: set("105.00") }],
     fulfillmentOrders: { nodes: [{ id: "gid://shopify/FulfillmentOrder/66", status: "OPEN" }] },
     ...rest,

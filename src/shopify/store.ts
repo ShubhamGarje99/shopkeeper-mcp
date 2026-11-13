@@ -36,7 +36,7 @@ export interface RawOrder {
   customer: { id: string; displayName: string | null; defaultEmailAddress: { emailAddress: string | null } | null; defaultAddress: { city: string | null; province: string | null } | null } | null;
   refunds: { id: string; createdAt: string; note: string | null; totalRefundedSet: ShopifyMoneySet }[];
   fulfillments: RawFulfillment[];
-  lineItems?: { nodes: { name: string; sku: string | null; quantity: number; originalUnitPriceSet: ShopifyMoneySet; product: { id: string } | null }[] };
+  lineItems?: { nodes: { name: string; sku: string | null; quantity: number; originalUnitPriceSet: ShopifyMoneySet }[] };
   transactions?: { id: string; kind: string; status: string; gateway: string | null; amountSet: ShopifyMoneySet }[];
   fulfillmentOrders?: { nodes: { id: string; status: string }[] };
 }

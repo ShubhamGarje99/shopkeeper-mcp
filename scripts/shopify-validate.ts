@@ -84,6 +84,16 @@ for (const [typeName, vals] of Object.entries(ENUM_VALUES)) {
     console.log(`FAIL  enum ${typeName}: missing [${missing}]${t ? "" : " (type not found)"}`);
   } else console.log(`ok    enum ${typeName}`);
 }
+// Fields that need scopes the docs do not ask buyers for (found live: product needs read_products).
+const EXTRA_SCOPE_FIELDS: Record<string, string> = { "product {": "read_products", "variant {": "read_products", "inventoryItem": "read_inventory" };
+for (const [name, doc] of Object.entries(ALL_OPERATIONS)) {
+  for (const [needle, scope] of Object.entries(EXTRA_SCOPE_FIELDS)) {
+    if (doc.includes(needle)) {
+      problems++;
+      console.log(`FAIL  ${name}: selects ${needle.replace(" {", "")}, which needs the ${scope} scope`);
+    }
+  }
+}
 for (const w of warn) console.log(`warn  ${w}`);
 console.log(problems === 0 ? `\nAll operations are valid against Admin API ${version}.` : `\n${problems} problem(s) against Admin API ${version}.`);
 process.exit(problems === 0 ? 0 : 1);

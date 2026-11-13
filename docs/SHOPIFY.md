@@ -40,7 +40,7 @@ Credentials live only in the environment of the server process. They are never p
 
 ## Access scopes for the app
 
-`read_orders`, `write_orders`, `read_customers`, `read_fulfillments`, `write_fulfillments`, `read_merchant_managed_fulfillment_orders`, `write_merchant_managed_fulfillment_orders`. Add `read_all_orders` if you need orders older than 60 days (without it Shopify only returns the last 60 days). Reading customer names/emails may also require protected-customer-data access depending on your app type.
+`read_orders`, `write_orders`, `read_customers`, `read_fulfillments`, `write_fulfillments`, `read_merchant_managed_fulfillment_orders`, `write_merchant_managed_fulfillment_orders`. Add `read_all_orders` if you need orders older than 60 days (without it Shopify only returns the last 60 days). **Protected customer data (required, or every order read fails with "not approved to access the Order object").** In the Partner Dashboard, open the app > API access requests > Protected customer data access. In step 1, select **Protected customer data** and the **Name**, **Email** and **Address** fields, each with a reason (e.g. customer service, store management). On development stores this is immediate; step 2 (data protection details) and review are only for App Store apps.
 
 ## Tools in Shopify mode
 
@@ -70,18 +70,21 @@ Not available in Shopify mode: `create_invoice`, `low_stock_alerts` (Shopify has
 
 **Verified by automated tests (33).** Money parsing, status derivation, every guardrail above, idempotent replay, the order state machine, MCP schema and structured-output validation, error mapping, and credentials never leaking, client-credentials token exchange and refresh. These run against `tests/shopify-fake.ts`, an in-memory imitation of the Admin API, which refuses any document that is not in the schema-validated set.
 
-**Not yet verified on a live store.** Schema validity proves Shopify will parse the calls, not that they behave as intended. Still to confirm on a development store: the client credentials exchange, required access scopes, how quickly `orderCancel` shows up, refunds against the Bogus gateway, and `fulfillmentEventCreate` marking an order delivered. A live failure comes back as `UPSTREAM_ERROR` with Shopify's message.
+**Verified on a live development store (13 Nov 2026), read path.** `npm run shopify:check` passed end to end against a real dev store on API 2026-04: client-credentials token exchange, `list_orders`, `get_order`, `search_customers` and `sales_report`, with statuses and totals matching the Shopify admin. The live run found two problems the schema check could not (protected customer data access, and a `product` field needing an extra scope); both are fixed and the validator now rejects fields that need undocumented scopes.
+
+**Not yet verified live: the write path.** Still to confirm on a development store: how quickly `orderCancel` shows up, refunds against the Bogus gateway, and `fulfillmentEventCreate` marking an order delivered. A live failure comes back as `UPSTREAM_ERROR` with Shopify's message.
 
 ## Live test checklist (development store, ~20 minutes)
 
 1. In the Dev Dashboard (dev.shopify.com), create a dev store from **Stores** (tick "Generate test data").
 2. Create an app under **Apps** with the scopes above, release a version, and install it on the store (Apps list > ⋯ > Install app).
-3. Create 3 test orders in the store admin: two marked as paid, one with payment due later.
-4. Run the read-only preflight and compare its output with the admin:
+3. In the Partner Dashboard, set up protected customer data access (see above).
+4. Create 3 test orders in the store admin: two marked as paid, one with payment due later.
+5. Run the read-only preflight and compare its output with the admin:
    `SHOPIFY_STORE=... SHOPIFY_CLIENT_ID=... SHOPIFY_CLIENT_SECRET=... npm run shopify:check`
    It sends no mutations and forces writes off.
-5. Connect the server to Claude with `SHOPKEEPER_SHOPIFY_WRITES=1`. On a paid order: refund a small amount; ask for the same refund again (expect `replayed: true` and one refund in the admin); try an over-refund (expect a refusal).
-6. Walk the other paid order paid -> shipped -> delivered; cancel the pending one (expect confirmed or `pending_confirmation`).
-7. Note any `UPSTREAM_ERROR` and fix the operation it points at in `src/shopify/operations.ts`.
+6. Connect the server to Claude with `SHOPKEEPER_SHOPIFY_WRITES=1`. On a paid order: refund a small amount; ask for the same refund again (expect `replayed: true` and one refund in the admin); try an over-refund (expect a refusal).
+7. Walk the other paid order paid -> shipped -> delivered; cancel the pending one (expect confirmed or `pending_confirmation`).
+8. Note any `UPSTREAM_ERROR` and fix the operation it points at in `src/shopify/operations.ts`.
 
 The Shopify backend is stdio-only. The optional HTTP transport has no authentication and refuses to start with `--backend shopify`.

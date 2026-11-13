@@ -25,7 +25,7 @@ const ORDER_CORE = `
 
 const ORDER_DETAIL = `
   ${ORDER_CORE}
-  lineItems(first: 50) { nodes { name sku quantity originalUnitPriceSet ${MONEY} product { id } } }
+  lineItems(first: 50) { nodes { name sku quantity originalUnitPriceSet ${MONEY} } }
   transactions(first: 20) { id kind status gateway amountSet ${MONEY} }
   fulfillmentOrders(first: 10) { nodes { id status } }
 `;
