@@ -45,7 +45,8 @@
     "eval:baseline": "tsx evals/run.ts --mode baseline",
     "eval:report": "tsx evals/run.ts --report-only",
     "shopify:validate": "tsx scripts/shopify-validate.ts",
-    "shopify:check": "tsx scripts/shopify-check.ts"
+    "shopify:check": "tsx scripts/shopify-check.ts",
+    "shopify:write-check": "tsx scripts/shopify-write-check.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",

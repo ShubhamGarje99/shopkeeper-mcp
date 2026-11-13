@@ -72,6 +72,9 @@ export function fakeShopify(orders: RawOrder[]): FakeShopify {
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
       return reply({ orders: { nodes: rows, pageInfo: { hasNextPage: false, endCursor: null } } });
     }
+    if (query.includes("query ShopInfo")) {
+      return reply({ shop: { name: "demo", myshopifyDomain: "demo.myshopify.com", currencyCode: "USD", plan: { partnerDevelopment: true, publicDisplayName: "Development" } } });
+    }
     if (query.includes("query Customers")) {
       const q = String(variables.q).toLowerCase();
       const seen = new Map<string, any>();

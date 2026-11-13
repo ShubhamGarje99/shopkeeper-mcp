@@ -175,9 +175,17 @@ export class ShopifyStore {
   }
 
   /** Cheap authenticated call: confirms the store, token and API version work. */
-  async shopInfo(): Promise<{ name: string; domain: string; currency: string }> {
-    const data = await this.client.graphql<{ shop: { name: string; myshopifyDomain: string; currencyCode: string } }>(SHOP_INFO);
-    return { name: data.shop.name, domain: data.shop.myshopifyDomain, currency: data.shop.currencyCode };
+  async shopInfo(): Promise<{ name: string; domain: string; currency: string; isDevelopmentStore: boolean; plan: string }> {
+    const data = await this.client.graphql<{
+      shop: { name: string; myshopifyDomain: string; currencyCode: string; plan: { partnerDevelopment: boolean; publicDisplayName: string } };
+    }>(SHOP_INFO);
+    return {
+      name: data.shop.name,
+      domain: data.shop.myshopifyDomain,
+      currency: data.shop.currencyCode,
+      isDevelopmentStore: data.shop.plan.partnerDevelopment === true,
+      plan: data.shop.plan.publicDisplayName,
+    };
   }
 
   /** Newest first. `truncated` is true when the scan stopped at the cap with more pages remaining. */

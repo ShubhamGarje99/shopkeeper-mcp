@@ -369,3 +369,10 @@ describe("client credentials (Dev Dashboard apps)", () => {
     expect(resolveShopifySettings({ ...base, SHOPIFY_ADMIN_TOKEN: "t", SHOPIFY_CLIENT_ID: "a", SHOPIFY_CLIENT_SECRET: "b" })).toMatchObject({ adminToken: "t", clientId: undefined });
   });
 });
+
+describe("shopInfo", () => {
+  it("reports whether the store is a development store", async () => {
+    const { ctx } = setup();
+    await expect(ctx.store.shopInfo()).resolves.toMatchObject({ domain: "demo.myshopify.com", isDevelopmentStore: true });
+  });
+});

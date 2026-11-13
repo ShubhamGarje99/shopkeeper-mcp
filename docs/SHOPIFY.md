@@ -83,7 +83,7 @@ Not available in Shopify mode: `create_invoice`, `low_stock_alerts` (Shopify has
 5. Run the read-only preflight and compare its output with the admin:
    `SHOPIFY_STORE=... SHOPIFY_CLIENT_ID=... SHOPIFY_CLIENT_SECRET=... npm run shopify:check`
    It sends no mutations and forces writes off.
-6. Connect the server to Claude with `SHOPKEEPER_SHOPIFY_WRITES=1`. On a paid order: refund a small amount; ask for the same refund again (expect `replayed: true` and one refund in the admin); try an over-refund (expect a refusal).
+6. Run the scripted write check: `npm run shopify:write-check` prints its plan without changing anything; add `-- --confirm` to run it. It refuses any store Shopify does not report as a development store. Or test by hand: connect the server to Claude with `SHOPKEEPER_SHOPIFY_WRITES=1`. On a paid order: refund a small amount; ask for the same refund again (expect `replayed: true` and one refund in the admin); try an over-refund (expect a refusal).
 7. Walk the other paid order paid -> shipped -> delivered; cancel the pending one (expect confirmed or `pending_confirmation`).
 8. Note any `UPSTREAM_ERROR` and fix the operation it points at in `src/shopify/operations.ts`.
 

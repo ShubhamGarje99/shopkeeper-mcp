@@ -46,7 +46,7 @@ export const CUSTOMERS = `query Customers($q: String!, $n: Int!) {
   }
 }`;
 
-export const SHOP_INFO = `query ShopInfo { shop { name myshopifyDomain currencyCode } }`;
+export const SHOP_INFO = `query ShopInfo { shop { name myshopifyDomain currencyCode plan { partnerDevelopment publicDisplayName } } }`;
 
 export const MARK_PAID = `mutation MarkPaid($input: OrderMarkAsPaidInput!) { orderMarkAsPaid(input: $input) { order { id } userErrors { field message } } }`;
 
