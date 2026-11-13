@@ -116,6 +116,7 @@ describe("settings", () => {
   it("requires store + token, defaults to read-only", () => {
     expect(() => resolveShopifySettings({})).toThrow(/SHOPIFY_STORE/);
     expect(() => resolveShopifySettings({ SHOPIFY_STORE: "demo.myshopify.com" })).toThrow(/SHOPIFY_ADMIN_TOKEN/);
+    expect(() => resolveShopifySettings({ SHOPIFY_STORE: "demo.myshopify.com" })).toThrow(/SHOPIFY_CLIENT_ID/);
     const s = resolveShopifySettings({ SHOPIFY_STORE: "https://demo.myshopify.com/", SHOPIFY_ADMIN_TOKEN: "t" });
     expect(s.shop).toBe("demo.myshopify.com");
     expect(s.writesEnabled).toBe(false);
@@ -299,5 +300,72 @@ describe("MCP surface (in-memory client)", () => {
     const okRefund = (await client.callTool({ name: "issue_refund", arguments: { order_id: 1042, amount_cents: 1000, reason: "goodwill", idempotency_key: "refund-1042-goodwill" } })) as CallToolResult;
     expect(okRefund.isError).toBeFalsy();
     await client.close();
+  });
+});
+
+describe("client credentials (Dev Dashboard apps)", () => {
+  const CC = { shop: "demo.myshopify.com", clientId: "cid_123", clientSecret: "SECRET_abc", apiVersion: "2026-04" };
+  const json = (status: number, body: unknown) => ({ ok: status < 400, status, text: async () => JSON.stringify(body) });
+
+  function harness(responses: ((url: string, init: { headers: Record<string, string>; body: string }) => ReturnType<typeof json>)[]) {
+    let t = 1_000_000;
+    const calls: { url: string; headers: Record<string, string>; body: string }[] = [];
+    const fetch = vi.fn(async (url: string, init: { method: string; headers: Record<string, string>; body: string }) => {
+      calls.push({ url, headers: init.headers, body: init.body });
+      const next = responses.shift();
+      if (!next) throw new Error("unexpected call");
+      return next(url, init);
+    });
+    const client = new ShopifyClient(CC, fetch, async () => {}, () => t);
+    return { client, calls, advance: (ms: number) => (t += ms) };
+  }
+
+  it("exchanges id + secret once, caches the token, and refreshes before expiry", async () => {
+    const h = harness([
+      () => json(200, { access_token: "tok_1", scope: "read_orders", expires_in: 86399 }),
+      () => json(200, { data: { a: 1 } }),
+      () => json(200, { data: { a: 2 } }),
+      () => json(200, { access_token: "tok_2", expires_in: 86399 }),
+      () => json(200, { data: { a: 3 } }),
+    ]);
+    await h.client.graphql("query { a }");
+    await h.client.graphql("query { a }");
+    expect(h.calls[0]!.url).toBe("https://demo.myshopify.com/admin/oauth/access_token");
+    expect(h.calls[0]!.headers["Content-Type"]).toBe("application/x-www-form-urlencoded");
+    expect(Object.fromEntries(new URLSearchParams(h.calls[0]!.body))).toEqual({ grant_type: "client_credentials", client_id: "cid_123", client_secret: "SECRET_abc" });
+    expect(h.calls[1]!.headers["X-Shopify-Access-Token"]).toBe("tok_1");
+    expect(h.calls[2]!.headers["X-Shopify-Access-Token"]).toBe("tok_1");
+    h.advance(86_399_000 - 30_000); // inside the 60s safety window
+    await h.client.graphql("query { a }");
+    expect(h.calls[4]!.headers["X-Shopify-Access-Token"]).toBe("tok_2");
+    expect(h.calls).toHaveLength(5);
+  });
+
+  it("refreshes once after a 401, then succeeds", async () => {
+    const h = harness([
+      () => json(200, { access_token: "tok_old", expires_in: 86399 }),
+      () => json(401, { errors: "Invalid API key or access token" }),
+      () => json(200, { access_token: "tok_new", expires_in: 86399 }),
+      () => json(200, { data: { ok: true } }),
+    ]);
+    await expect(h.client.graphql("query { ok }")).resolves.toEqual({ ok: true });
+    expect(h.calls[3]!.headers["X-Shopify-Access-Token"]).toBe("tok_new");
+  });
+
+  it("explains shop_not_permitted and never leaks the secret", async () => {
+    const h = harness([() => json(400, { error: "shop_not_permitted", error_description: "Client credentials cannot be performed on this shop." })]);
+    const err = (await h.client.graphql("query { a }").catch((e: unknown) => e)) as ShopError;
+    expect(err.reason).toBe("SHOPIFY_TOKEN_EXCHANGE_FAILED");
+    expect(err.message).toMatch(/same Shopify organization/);
+    expect(JSON.stringify(err.toJSON())).not.toContain("SECRET_abc");
+  });
+
+  it("settings accept id + secret, require both, and prefer a static token", () => {
+    const base = { SHOPIFY_STORE: "demo.myshopify.com" };
+    const s = resolveShopifySettings({ ...base, SHOPIFY_CLIENT_ID: "a", SHOPIFY_CLIENT_SECRET: "b" });
+    expect(s).toMatchObject({ clientId: "a", clientSecret: "b", adminToken: undefined });
+    expect(() => resolveShopifySettings({ ...base, SHOPIFY_CLIENT_ID: "a" })).toThrow(/both/);
+    expect(() => resolveShopifySettings(base)).toThrow(/SHOPIFY_CLIENT_ID/);
+    expect(resolveShopifySettings({ ...base, SHOPIFY_ADMIN_TOKEN: "t", SHOPIFY_CLIENT_ID: "a", SHOPIFY_CLIENT_SECRET: "b" })).toMatchObject({ adminToken: "t", clientId: undefined });
   });
 });

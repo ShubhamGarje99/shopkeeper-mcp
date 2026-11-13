@@ -5,9 +5,14 @@ Run Shopkeeper against a **live Shopify store** instead of the bundled demo data
 ```bash
 npm install && npm run build
 SHOPIFY_STORE=your-shop.myshopify.com \
-SHOPIFY_ADMIN_TOKEN=shpat_... \
+SHOPIFY_CLIENT_ID=... SHOPIFY_CLIENT_SECRET=... \
 node dist/index.js --backend shopify
 ```
+
+Two ways to authenticate:
+
+- **Dev Dashboard app (current Shopify default):** set `SHOPIFY_CLIENT_ID` and `SHOPIFY_CLIENT_SECRET` (app > Settings > Credentials). The server exchanges them for a 24-hour Admin API token (client credentials grant), caches it, and refreshes it automatically. The app must be installed on the store, and the app and store must be in the same Shopify organization.
+- **Legacy custom app:** set `SHOPIFY_ADMIN_TOKEN` (`shpat_...`). Used in preference when set.
 
 **Read-only by default.** Write tools (`update_order_status`, `issue_refund`) refuse with `WRITES_DISABLED` until you also set `SHOPKEEPER_SHOPIFY_WRITES=1`. Try everything read-only first.
 
@@ -15,24 +20,25 @@ node dist/index.js --backend shopify
 
 ```bash
 claude mcp add shopkeeper-shopify \
-  -e SHOPIFY_STORE=your-shop.myshopify.com -e SHOPIFY_ADMIN_TOKEN=shpat_... \
+  -e SHOPIFY_STORE=your-shop.myshopify.com -e SHOPIFY_CLIENT_ID=... -e SHOPIFY_CLIENT_SECRET=... \
   -- node /ABSOLUTE/PATH/TO/shopkeeper-mcp/dist/index.js --backend shopify
 ```
 
-The token lives only in the environment of the server process. It is never printed, logged, or put in an error message (there is a test for this).
+Credentials live only in the environment of the server process. They are never printed, logged, or put in an error message (there are tests for this).
 
 ## Settings
 
 | Env var | Default | Meaning |
 |---|---|---|
 | `SHOPIFY_STORE` | required | `<name>.myshopify.com` |
-| `SHOPIFY_ADMIN_TOKEN` | required | Admin API access token from a custom app |
+| `SHOPIFY_CLIENT_ID` + `SHOPIFY_CLIENT_SECRET` | one auth method required | Dev Dashboard app credentials; exchanged for auto-refreshing 24-hour tokens |
+| `SHOPIFY_ADMIN_TOKEN` | one auth method required | Static Admin API token from a legacy custom app |
 | `SHOPIFY_API_VERSION` | `2026-04` | Admin GraphQL API version |
 | `SHOPKEEPER_SHOPIFY_WRITES` | off | `1` enables the two write tools |
 | `SHOPKEEPER_MAX_REFUND_MINOR` | `100000` | Per-refund cap in minor units (100000 = 1,000.00 USD) |
 | `SHOPKEEPER_AUDIT_FILE` | none | Append every write to this JSONL file (also echoed to stderr) |
 
-## Access scopes for the custom app
+## Access scopes for the app
 
 `read_orders`, `write_orders`, `read_customers`, `read_fulfillments`, `write_fulfillments`, `read_merchant_managed_fulfillment_orders`, `write_merchant_managed_fulfillment_orders`. Add `read_all_orders` if you need orders older than 60 days (without it Shopify only returns the last 60 days). Reading customer names/emails may also require protected-customer-data access depending on your app type.
 
@@ -62,17 +68,17 @@ Not available in Shopify mode: `create_invoice`, `low_stock_alerts` (Shopify has
 
 **Verified against Shopify's published schema.** `npm run shopify:validate` downloads the Admin GraphQL schema for the configured API version from Shopify's public docs endpoint and validates every query, mutation, input field and enum value this backend uses. All pass on `2026-04`. This check caught and fixed two real errors (a removed `orderCancel` argument and a misplaced `@idempotent` directive), so run it again before changing `SHOPIFY_API_VERSION`.
 
-**Verified by automated tests (29).** Money parsing, status derivation, every guardrail above, idempotent replay, the order state machine, MCP schema and structured-output validation, error mapping, and the token never leaking. These run against `tests/shopify-fake.ts`, an in-memory imitation of the Admin API, which refuses any document that is not in the schema-validated set.
+**Verified by automated tests (33).** Money parsing, status derivation, every guardrail above, idempotent replay, the order state machine, MCP schema and structured-output validation, error mapping, and credentials never leaking, client-credentials token exchange and refresh. These run against `tests/shopify-fake.ts`, an in-memory imitation of the Admin API, which refuses any document that is not in the schema-validated set.
 
-**Not yet verified on a live store.** Schema validity proves Shopify will parse the calls, not that they behave as intended. Still to confirm on a development store: required access scopes, how quickly `orderCancel` shows up, refunds against the Bogus gateway, and `fulfillmentEventCreate` marking an order delivered. A live failure comes back as `UPSTREAM_ERROR` with Shopify's message.
+**Not yet verified on a live store.** Schema validity proves Shopify will parse the calls, not that they behave as intended. Still to confirm on a development store: the client credentials exchange, required access scopes, how quickly `orderCancel` shows up, refunds against the Bogus gateway, and `fulfillmentEventCreate` marking an order delivered. A live failure comes back as `UPSTREAM_ERROR` with Shopify's message.
 
 ## Live test checklist (development store, ~20 minutes)
 
-1. Create a free Shopify development store; enable the Bogus Gateway (Settings > Payments > test mode).
-2. Create a custom app with the scopes above; copy the Admin API token.
-3. Create 3 test orders: two paid, one pending (manual payment).
+1. In the Dev Dashboard (dev.shopify.com), create a dev store from **Stores** (tick "Generate test data").
+2. Create an app under **Apps** with the scopes above, release a version, and install it on the store (Apps list > ⋯ > Install app).
+3. Create 3 test orders in the store admin: two marked as paid, one with payment due later.
 4. Run the read-only preflight and compare its output with the admin:
-   `SHOPIFY_STORE=... SHOPIFY_ADMIN_TOKEN=... npm run shopify:check`
+   `SHOPIFY_STORE=... SHOPIFY_CLIENT_ID=... SHOPIFY_CLIENT_SECRET=... npm run shopify:check`
    It sends no mutations and forces writes off.
 5. Connect the server to Claude with `SHOPKEEPER_SHOPIFY_WRITES=1`. On a paid order: refund a small amount; ask for the same refund again (expect `replayed: true` and one refund in the admin); try an over-refund (expect a refusal).
 6. Walk the other paid order paid -> shipped -> delivered; cancel the pending one (expect confirmed or `pending_confirmation`).

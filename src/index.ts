@@ -37,7 +37,7 @@ async function main(): Promise<void> {
     }
     const store = new ShopifyStore(new ShopifyClient(settings));
     server = createShopifyServer({ store, settings, clock, actor: "mcp:stdio" }, settings.shop);
-    ready = `shopify ${settings.shop}, api ${settings.apiVersion}, writes ${settings.writesEnabled ? "ENABLED" : "disabled (read-only)"}`;
+    ready = `shopify ${settings.shop}, api ${settings.apiVersion}, auth ${settings.adminToken ? "static token" : "client credentials"}, writes ${settings.writesEnabled ? "ENABLED" : "disabled (read-only)"}`;
   } else {
     const { db, created } = openOrCreateDatabase(dbPath);
     if (created) console.error(`[shopkeeper] no database found - created and seeded ${dbPath}`);
