@@ -72,7 +72,9 @@ Not available in Shopify mode: `create_invoice`, `low_stock_alerts` (Shopify has
 
 **Verified on a live development store (13 Nov 2026), read path.** `npm run shopify:check` passed end to end against a real dev store on API 2026-04: client-credentials token exchange, `list_orders`, `get_order`, `search_customers` and `sales_report`, with statuses and totals matching the Shopify admin. The live run found two problems the schema check could not (protected customer data access, and a `product` field needing an extra scope); both are fixed and the validator now rejects fields that need undocumented scopes.
 
-**Not yet verified live: the write path.** Still to confirm on a development store: how quickly `orderCancel` shows up, refunds against the Bogus gateway, and `fulfillmentEventCreate` marking an order delivered. A live failure comes back as `UPSTREAM_ERROR` with Shopify's message.
+**Verified on a live development store (13 Nov 2026), write path.** `npm run shopify:write-check -- --confirm` passed 9 of 9 checks: a 1.00 refund; the same refund replayed without paying twice (one refund in Shopify); key reuse with a different amount refused; over-refund refused; paid -> shipped -> delivered; delivered -> paid blocked; a pending order cancelled (Shopify's background job confirmed within seconds, reported as `pending_confirmation` first, exactly as designed); a refund on the cancelled order refused.
+
+**Not yet exercised live:** pending -> paid (`orderMarkAsPaid`), which needs a second pending order; it is schema-validated and unit-tested. A live failure would come back as `UPSTREAM_ERROR` with Shopify's message.
 
 ## Live test checklist (development store, ~20 minutes)
 
